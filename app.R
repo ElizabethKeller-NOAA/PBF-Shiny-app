@@ -2,70 +2,70 @@
 # R Shiny app to make PBF tables #
 ##################################
 
-# load packages
-library(data.table)
-library(shiny)
-library(bslib)
-library(writexl) # Required for writing XLSX files
+# wrap global setup code in Local()
 
-# read in data
-# use csv for now
-PBFs <- read.csv("data/PBFs for Shiny app test.csv")
+local({
+  # load packages
+  library(data.table)
+  library(shiny)
+  library(bslib)
+  library(writexl) # Required for writing XLSX files
+  library(DT) # Ensure DT is loaded if you use DT::renderDataTable
+  
+  # read in data; using csv for now
+  PBFs <- read.csv("data/PBFs for Shiny app test.csv")
+  
+  # data wrangling to make it the right format
+  # creates species+ESU/DPS; no separator if no ESU/DPS
+  PBFs$Species_full <- ifelse(
+    is.na(PBFs$ESU_DPS) | PBFs$ESU_DPS == "",
+    PBFs$Species,
+    paste0(PBFs$Species, " – ", PBFs$ESU_DPS)
+  )
+  # Sort the PBFs data frame alphabetically by Species_full
+  PBFs <- PBFs[order(PBFs$Species_full), ]
+  
+  # Define Stressors globally
+  # This variable definition MUST be correct for your data:
+  Stressors <- as.character(colnames(PBFs)[15:41])
+  
+  # --- Attach variables to the global environment for access by ui/server ---
+  assign("PBFs", PBFs, envir = .GlobalEnv)
+  assign("Stressors", Stressors, envir = .GlobalEnv)
+})
 
-# any data wrangling to make it the right format for what I want
-# filter any? *only keep what you will use for the app; don't have it load anything extraneous
-
-# creates species+ESU/DPS; no separator if no ESU/DPS
-  # Convert to data.table for optimized operations if working with a data frame
-  # Or just use fifelse on the vectors
-PBFs$Species_full <- ifelse(
-  is.na(PBFs$ESU_DPS) | PBFs$ESU_DPS == "", 
-  PBFs$Species, 
-  paste0(PBFs$Species, " – ", PBFs$ESU_DPS)
-)
-# Sort the PBFs data frame alphabetically by Species_full
-PBFs <- PBFs[order(PBFs$Species_full), ]
-
-Stressors <- colnames(PBFs)[15:41]
-
-#############
-# Shiny app #
-#############
+# UI Definition ---
 
 ui <- page_fillable(
   
-  # --- CSS BLOCK ---
   tags$head(
     tags$style(HTML("
-        /* 1. Base style for vertical stacking (applies to all checkboxes) */
-        #checkSpecies .checkbox {
-          display: block;
-          margin-right: 0px;
-        }
-        
-        /* 2. Rule for the WIDE INITIAL LAYOUT: Force NO WRAPPING in the wide card */
-        .wide-layout-species-card #checkSpecies .checkbox {
-            white-space: nowrap; 
-        }
+      /* 1. Base style for vertical stacking (applies to all checkboxes) */
+      #checkSpecies .checkbox {
+        display: block;
+        margin-right: 0px;
+      }
+      
+      /* 2. Rule for the WIDE INITIAL LAYOUT: Force NO WRAPPING in the wide card */
+      .wide-layout-species-card #checkSpecies .checkbox {
+          white-space: nowrap; 
+      }
 
-        /* 3. SCROLLBAR FOR INITIAL STATE (using the new class) */
-        /* This restores the scrollbar for the non-wrapping card when first loading */
-        .wide-layout-species-card .card-body {
-          max-height: 400px;
-          overflow-y: auto;
-          overflow-x: hidden; 
-        }
-        
-        /* 4. SCROLLBAR FOR ACTIVE STATE (using the scrollable-card class) */
-        /* This allows wrapping and ensures the scrollbar exists in the narrow sidebar */
-        .scrollable-card .card-body {
-          max-height: 400px;
-          overflow-y: auto;
-          overflow-x: hidden;
-        }
-      "))
+      /* 3. SCROLLBAR FOR INITIAL STATE (using the new class) */
+      .wide-layout-species-card .card-body {
+        max-height: 400px;
+        overflow-y: auto;
+        overflow-x: hidden; 
+      }
+      
+      /* 4. SCROLLBAR FOR ACTIVE STATE (using the scrollable-card class) */
+      .scrollable-card .card-body {
+        max-height: 400px;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+    "))
   ),
-  # ------------------
   
   # =========================================================
   # 1. INITIAL STATE (Input Cards Fill Space - No Table)
@@ -78,9 +78,9 @@ ui <- page_fillable(
       # Arrange inputs fluidly across the top
       col_widths = c(6, 3, 3), 
       
-      # CARD 1: Critical Habitats (long list)
+      # CARD 1: Critical Habitats 
       card(
-        class = "wide-layout-species-card", # <--- NEW CLASS HERE
+        class = "wide-layout-species-card",
         card_header("Critical Habitats"),
         p("Choose the species whose critical habitat may be affected by the action."),
         checkboxGroupInput("checkSpecies", label = NULL, choices = unique(PBFs$Species_full)),
@@ -94,6 +94,7 @@ ui <- page_fillable(
           checkboxInput("BySpecies", label = "Create one table of all PBFs by species"),
           checkboxInput("ByStressors", label = "Create tables of PBFs per stressor/category"),
         ),
+        
         card(
           card_header("Table Preview"),
           actionButton("preview", label = "Preview Table(s) Now"),
@@ -106,7 +107,21 @@ ui <- page_fillable(
         downloadButton("downloadxlsx", label = "Download Table(s) as xlsx"),
         downloadButton("downloaddocx", label = "Download Table(s) as docx"),
       )
+    ), # End layout_columns
+    
+    # --- STRESSOR CHECKBOXES (Immediate visibility in Initial State - FIXED) ---
+    conditionalPanel(
+      condition = "input.ByStressors == true",
+      card(
+        card_header("Select Stressors"),
+        checkboxGroupInput(
+          "checkStressors",
+          label = NULL,
+          choices = Stressors
+        )
+      )
     )
+    # ------------------------------------------------------------------
   ), # END Initial State
   
   # =========================================================
@@ -119,12 +134,12 @@ ui <- page_fillable(
     layout_sidebar(
       fillable = TRUE, 
       
-      # --- Sidebar for Controls (skinny column) ---
+      # --- Sidebar for Controls (wider column) ---
       sidebar = sidebar(
         width = 400, 
         position = "left",
         
-        # 1. Table Organization (New Top)
+        # 1. Table Organization (Top of stack)
         card(
           card_header("Table Organization"),
           checkboxInput("BySpecies", label = "Create one table of all PBFs by species"),
@@ -134,7 +149,6 @@ ui <- page_fillable(
         # 2. Table Preview
         card(
           card_header("Table Preview"),
-          # Button to UPDATE the table
           actionButton("preview_update", label = "Update Table(s)"), 
         ),
         
@@ -145,71 +159,206 @@ ui <- page_fillable(
           downloadButton("downloaddocx", label = "Download .docx"),
         ),
         
-        # 4. Critical Habitats (Long list, now at the bottom of the stack)
+        # 4. Conditional Stressor Checkboxes (DYNAMIC INPUT - RESTORED)
+        conditionalPanel(
+          condition = "input.ByStressors == true",
+          card(
+            card_header("Select Stressors"),
+            # Revert to uiOutput to pass dynamic 'selected' argument from server
+            uiOutput("stressor_inputs") 
+          )
+        ),
+        
+        # 5. Critical Habitats (Long list, bottom of stack)
         card(
-          class = "scrollable-card", # <--- USES EXISTING CLASS
+          class = "scrollable-card",
           card_header("Critical Habitats"),
           checkboxGroupInput("checkSpecies", label = NULL, choices = unique(PBFs$Species_full)),
         )
       ),
       
-      # --- Main Content Area (Wide Table) ---
+      # --- Main Content Area (Wide Tabbed Table) ---
       card(
         full_screen = TRUE, 
         height = "100%", 
         card_header("PBF Table(s)"),
-        DT::dataTableOutput("PBFtable")
+        uiOutput("main_tabs") 
       )
     )
   ) # END Active State
 )
 
-# create table by species ONLY IF that box is checked
-# create table by stressors ONLY IF that box is checked
-
 # put all PBFs in one cell (not separate rows) # format PBFs as bulletted (for Word version)
 # want to combine species in a row if all the PBFs are the same
 
 
-# --- Data Preparation (Place outside server function if PBFs is a global object) ---
-PBFs <- PBFs[order(PBFs$Species_full), ]
 # ---------------------------------------------------------------------------------
 
 # Define server logic ----
-server <- function(input, output) {
+
+server <- function(input, output, session) { 
   
-  # 1. Create a dynamic reactive trigger based on EITHER button being clicked
-  # The trigger value itself is not used, only its reactivity
+  # 1. TRIGGER AND BASE DATA DEFINITIONS (MUST BE FIRST)
+  # ----------------------------------------------------------------------------------
+  
+  # Trigger Logic: Listens to BOTH buttons
   table_trigger <- reactive({
-    # Listen to the initial button OR the update button
     input$preview
     input$preview_update
-    
-    # Return the maximum click count to ensure it only runs once per click
     max(input$preview, input$preview_update)
   })
   
-  # 2. Filtered data that ONLY runs when the table_trigger changes
-  filtered_data <- eventReactive(table_trigger(), {
-    
-    # The filtering logic remains the same
+  # Base Filtered Data: Filters by species only, runs ONLY on button click (Visible to all outputs)
+  base_filtered_data <- eventReactive(table_trigger(), {
     if (is.null(input$checkSpecies)) {
-      return(PBFs[0, c("Species_full", "PBF")]) 
+      return(PBFs[0, ]) 
     }
-    
-    PBFs[PBFs$Species_full %in% input$checkSpecies, c("Species_full", "PBF")]
+    PBFs[PBFs$Species_full %in% input$checkSpecies, ]
   })
   
-  # 3. Data Rendering
-  output$PBFtable <- DT::renderDataTable({
+  # Reactive value to store the stressor selections
+  current_stressor_selections <- reactiveVal(NULL)
+  
+  # ----------------------------------------------------------------------------------
+  
+  
+  # 2. INPUT SYNCHRONIZATION LOGIC (Observe blocks)
+  # ----------------------------------------------------------------------------------
+  
+  # Observe 1: Stores the stressor selections immediately
+  observe({
+    current_stressor_selections(input$checkStressors)
+  })
+  
+  # Observe 2: Initializes inputs upon layout switch
+  observeEvent(input$preview, {
+    
+    # 1. Update Critical Habitat/Species Selections (Static Input):
+    updateCheckboxGroupInput(
+      session = session,
+      inputId = "checkSpecies",
+      selected = input$checkSpecies
+    )
+    
+    # 2. Update Stressor Selections (Dynamic Input):
+    if (isTRUE(input$ByStressors)) {
+      # This forces the renderUI to execute once with the correct initial selections
+      output$stressor_inputs <- renderUI({
+        
+        req(Stressors) 
+        
+        checkboxGroupInput(
+          "checkStressors",
+          label = NULL, 
+          choices = Stressors,
+          selected = input$checkStressors 
+        )
+      })
+    }
+  }, ignoreInit = TRUE)
+  # ----------------------------------------------------------------------------------
+  
+  
+  # 3. OUTPUT RENDERING LOGIC (Uses the reactives defined above)
+  # ----------------------------------------------------------------------------------
+  
+  # --- Stressor Input Content (Dynamic, handles subsequent updates) ---
+  output$stressor_inputs <- renderUI({
+    
+    req(Stressors) 
+    
+    initial_selections <- current_stressor_selections()
+    
+    checkboxGroupInput(
+      "checkStressors",
+      label = NULL, 
+      choices = Stressors,
+      selected = initial_selections
+    )
+  })
+  
+  
+  # --- Dynamic Tab and Table Rendering ---
+  
+  output$main_tabs <- renderUI({
+    
+    # Dependencies...
+    req(input$BySpecies | input$ByStressors)
+    if (isTRUE(input$ByStressors)) {
+      input$checkStressors 
+    }
+    
+    tab_list <- list()
+    
+    # CASE 1: "By Species" is checked - ADD TO TAB LIST
+    if (isTRUE(input$BySpecies)) {
+      tab_list <- append(tab_list, list(
+        nav_panel(
+          title = "Combined Species Data",
+          value = "tab_species",
+          DT::dataTableOutput("PBFtable_BySpecies")
+        )
+      ))
+    } 
+    
+    # CASE 2: "By Stressors" is checked AND specific stressors are selected - ADD TO TAB LIST
+    if (isTRUE(input$ByStressors) && !is.null(input$checkStressors)) {
+      
+      stressor_tabs <- lapply(input$checkStressors, function(stressor_name) {
+        
+        output_id <- paste0("table_", gsub("[^[:alnum:]]", "_", stressor_name))
+        
+        # Define the rendering for the current table dynamically
+        output[[output_id]] <- DT::renderDataTable({
+          
+          # base_filtered_data() is now correctly defined and accessible
+          data_to_filter <- base_filtered_data() 
+          
+          filter_condition <- (data_to_filter[[stressor_name]] == 1) & 
+            (!is.na(data_to_filter[[stressor_name]]))
+          
+          final_data <- data_to_filter[filter_condition, c("Species_full", "PBF")]
+          
+          DT::datatable(
+            data = final_data,
+            caption = htmltools::tags$caption(style = 'caption-side: top; text-align: center; font-size: 1.2em;',
+                                              stressor_name),
+            rownames = FALSE,
+            options = list(pageLength = 100, lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All')))
+          )
+        })
+        
+        # Return the actual tab UI element
+        nav_panel(
+          title = stressor_name,
+          value = paste0("tab_", output_id),
+          DT::dataTableOutput(output_id)
+        )
+      })
+      
+      tab_list <- append(tab_list, stressor_tabs)
+    }
+    
+    # If tabs were generated, wrap them in the card tabset
+    if (length(tab_list) > 0) {
+      return(navset_card_tab(
+        !!!tab_list 
+      ))
+    }
+    
+    # No valid options selected
+    return(NULL)
+  })
+  
+  # --- Dedicated Output for the "Combined Species Data" Tab ---
+  output$PBFtable_BySpecies <- DT::renderDataTable({
+    # base_filtered_data() is now correctly defined and accessible
+    data <- base_filtered_data()[, c("Species_full", "PBF")]
     
     DT::datatable(
-      data = filtered_data(),
+      data = data,
       rownames = FALSE,
-      options = list(
-        pageLength = 100, 
-        lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All'))
-      )
+      options = list(pageLength = 100, lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All')))
     )
   })
 }
