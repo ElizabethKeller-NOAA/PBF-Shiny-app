@@ -115,7 +115,7 @@ ui <- page_fillable(
       card(
         card_header("Select Stressors"),
         checkboxGroupInput(
-          "checkStressors",
+          "checkStressors_init",
           label = NULL,
           choices = Stressors
         )
@@ -233,6 +233,9 @@ server <- function(input, output, session) {
   # Observe 2: Initializes inputs upon layout switch
   observeEvent(input$preview, {
     
+    # Value to be transferred is read from the INITIAL ID
+    initial_stressor_values <- input$checkStressors_init
+    
     # 1. Update Critical Habitat/Species Selections (Static Input):
     updateCheckboxGroupInput(
       session = session,
@@ -242,16 +245,19 @@ server <- function(input, output, session) {
     
     # 2. Update Stressor Selections (Dynamic Input):
     if (isTRUE(input$ByStressors)) {
-      # This forces the renderUI to execute once with the correct initial selections
+      # Update the reactive storage with the value from the INITIAL input
+      current_stressor_selections(initial_stressor_values)
+      
+      # Force the renderUI to execute once with the correct initial selections
       output$stressor_inputs <- renderUI({
         
         req(Stressors) 
         
         checkboxGroupInput(
-          "checkStressors",
+          "checkStressors", # <--- Use the FINAL, CORRECT ID here
           label = NULL, 
           choices = Stressors,
-          selected = input$checkStressors 
+          selected = initial_stressor_values # Use the initial value for the first render
         )
       })
     }
