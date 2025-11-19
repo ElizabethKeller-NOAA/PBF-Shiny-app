@@ -73,12 +73,14 @@ ui <- page_fillable(
   # =========================================================
   conditionalPanel(
     condition = "input.preview == 0",
-    
+
+      
     layout_columns(
       # Arrange inputs fluidly across the top
       col_widths = c(6, 3, 3), 
       
       # CARD 1: Critical Habitats 
+      # 1. Table Organization (Top of stack)
       card(
         class = "wide-layout-species-card",
         card_header("Critical Habitats"),
@@ -109,9 +111,10 @@ ui <- page_fillable(
       )
     ), # End layout_columns
     
-    # --- STRESSOR CHECKBOXES (Immediate visibility in Initial State - FIXED) ---
+    # --- STRESSOR CHECKBOXES (Immediate visibility in Initial State) ---
     conditionalPanel(
       condition = "input.ByStressors == true",
+      layout_columns(
       card(
         card_header("Select Stressors"),
         checkboxGroupInput(
@@ -120,7 +123,7 @@ ui <- page_fillable(
           choices = Stressors
         )
       )
-    )
+    ))
     # ------------------------------------------------------------------
   ), # END Initial State
   
