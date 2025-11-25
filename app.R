@@ -285,6 +285,7 @@ server <- function(input, output, session) {
       return(final_data)
   }
   
+  # --- Dynamic Tab and Table Rendering (THE FIX FOR HEIGHT) ---
   output$main_tabs <- renderUI({
     
     # Dependencies...
@@ -301,7 +302,11 @@ server <- function(input, output, session) {
         nav_panel(
           title = "Combined Species Data",
           value = "tab_species",
-          DT::dataTableOutput("PBFtable_BySpecies")
+          # KEY FIX: Wrap the output in a height: 100% container
+          tags$div(
+            style = "height: 100%;",
+            DT::dataTableOutput("PBFtable_BySpecies", height = "100%") 
+          )
         )
       ))
     } 
@@ -321,9 +326,9 @@ server <- function(input, output, session) {
           DT::datatable(
             data = final_data,
             caption = htmltools::tags$caption(style = 'caption-side: top; text-align: center; font-size: 1.2em;',
-                                             stressor_name),
+                                              stressor_name),
             rownames = FALSE,
-            options = list(pageLength = 100, lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All')))
+            options = list(pageLength = -1, dom = 't') # Only the required options
           )
         })
         
@@ -331,7 +336,11 @@ server <- function(input, output, session) {
         nav_panel(
           title = stressor_name,
           value = paste0("tab_", output_id),
-          DT::dataTableOutput(output_id)
+          # KEY FIX: Wrap the output in a height: 100% container
+          tags$div(
+            style = "height: 100%;",
+            DT::dataTableOutput(output_id, height = "100%") 
+          )
         )
       })
       
@@ -357,7 +366,12 @@ server <- function(input, output, session) {
     DT::datatable(
       data = data,
       rownames = FALSE,
-      options = list(pageLength = 100, lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All')))
+      options = list(
+        # Show ALL rows
+        pageLength = -1,
+        # Hide controls (search, length menu, info, pagination)
+        dom = 't'
+        )
     )
   })
   
