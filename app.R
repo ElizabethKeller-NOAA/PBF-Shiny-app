@@ -8,11 +8,11 @@ library(shiny)
 library(bslib)
 library(writexl) # Required for writing XLSX files
 library(DT) # Ensure DT is loaded if you use DT::renderDataTable
-
+ 
 # read in data; using csv for now
 # NOTE: Replace "data/PBFs for Shiny app test.csv" with your actual path
 PBFs <- read.csv("data/PBFs for Shiny app test.csv")
-
+ 
 # data wrangling to make it the right format
 # creates species+ESU/DPS; no separator if no ESU/DPS
 PBFs$Species_full <- ifelse(
@@ -22,7 +22,7 @@ PBFs$Species_full <- ifelse(
 )
 # Sort the PBFs data frame alphabetically by Species_full
 PBFs <- PBFs[order(PBFs$Species_full), ]
-
+ 
 # Define Stressors globally
 # This variable definition MUST be correct for your data:
 Stressors <- as.character(colnames(PBFs)[15:41])
@@ -30,7 +30,7 @@ Stressors <- as.character(colnames(PBFs)[15:41])
 # UI Definition ---
 
 ui <- page_fillable(
-  
+ 
   tags$head(
     tags$style(HTML("
       /* 1. Base style for vertical stacking (applies to all checkboxes) */
@@ -59,15 +59,15 @@ ui <- page_fillable(
       }
     "))
   ),
-  
+ 
   # =========================================================
   # 1. INITIAL STATE (Input Cards Fill Space - No Table)
   #    Condition: input.preview == 0 (Button not clicked)
   # =========================================================
   conditionalPanel(
     condition = "input.preview == 0",
-    
-    
+
+      
     layout_columns(
       # Arrange inputs fluidly across the top
       col_widths = c(6, 3, 3), 
@@ -108,15 +108,15 @@ ui <- page_fillable(
     conditionalPanel(
       condition = "input.ByStressors == true",
       layout_columns(
-        card(
-          card_header("Select Stressors"),
-          checkboxGroupInput(
-            "checkStressors_init",
-            label = NULL,
-            choices = Stressors
-          )
+      card(
+        card_header("Select Stressors"),
+        checkboxGroupInput(
+          "checkStressors_init",
+          label = NULL,
+          choices = Stressors
         )
-      ))
+      )
+    ))
     # ------------------------------------------------------------------
   ), # END Initial State
   
@@ -135,27 +135,20 @@ ui <- page_fillable(
         width = 400, 
         position = "left",
         
-        # 1. Table Organization (Top of stack)
-        card(
-          card_header("Table Organization"),
-          checkboxInput("BySpecies", label = "Create one table of all PBFs by species"),
-          checkboxInput("ByStressors", label = "Create tables of PBFs per stressor/category"),
-        ),
-        
-        # 2. Table Preview
+        # 1. Table Preview
         card(
           card_header("Table Preview"),
           actionButton("preview_update", label = "Update Table(s)"), 
         ),
         
-        # 3. Downloads
+        # 2. Downloads
         card(
           card_header("Downloads"),
           downloadButton("downloadxlsx", label = "Download .xlsx"),
           downloadButton("downloaddocx", label = "Download .docx"),
         ),
         
-        # 4. Conditional Stressor Checkboxes (DYNAMIC INPUT - RESTORED)
+        # 3. Conditional Stressor Checkboxes (DYNAMIC INPUT - RESTORED)
         conditionalPanel(
           condition = "input.ByStressors == true",
           card(
@@ -165,7 +158,7 @@ ui <- page_fillable(
           )
         ),
         
-        # 5. Critical Habitats (Long list, bottom of stack)
+        # 4. Critical Habitats (Long list, bottom of stack)
         card(
           class = "scrollable-card",
           card_header("Critical Habitats"),
@@ -220,7 +213,7 @@ server <- function(input, output, session) {
     # We check both the initial input and the dynamic input, prioritizing the dynamic one if present
     # This also helps capture the initial state when the layout switches (as 'checkStressors' will then exist)
     if (!is.null(input$checkStressors)) {
-      current_stressor_selections(input$checkStressors)
+        current_stressor_selections(input$checkStressors)
     }
   })
   
@@ -282,14 +275,14 @@ server <- function(input, output, session) {
   
   # Function to generate the data for a specific stressor tab (Used for both display and download)
   generate_stressor_data <- function(stressor_name) {
-    data_to_filter <- base_filtered_data() 
-    
-    filter_condition <- (data_to_filter[[stressor_name]] == 1) & 
-      (!is.na(data_to_filter[[stressor_name]]))
-    
-    # Note: We return a standard data frame/tibble here for writexl
-    final_data <- data_to_filter[filter_condition, c("Species_full", "PBF")]
-    return(final_data)
+      data_to_filter <- base_filtered_data() 
+      
+      filter_condition <- (data_to_filter[[stressor_name]] == 1) & 
+          (!is.na(data_to_filter[[stressor_name]]))
+      
+      # Note: We return a standard data frame/tibble here for writexl
+      final_data <- data_to_filter[filter_condition, c("Species_full", "PBF")]
+      return(final_data)
   }
   
   output$main_tabs <- renderUI({
@@ -328,7 +321,7 @@ server <- function(input, output, session) {
           DT::datatable(
             data = final_data,
             caption = htmltools::tags$caption(style = 'caption-side: top; text-align: center; font-size: 1.2em;',
-                                              stressor_name),
+                                             stressor_name),
             rownames = FALSE,
             options = list(pageLength = 100, lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All')))
           )
@@ -384,7 +377,7 @@ server <- function(input, output, session) {
         # Ensure base_filtered_data is triggered and contains data
         data_species <- base_filtered_data() 
         if (nrow(data_species) > 0) {
-          output_list[["Combined_PBFs"]] <- data_species[, c("Species_full", "PBF")]
+            output_list[["Combined_PBFs"]] <- data_species[, c("Species_full", "PBF")]
         }
       }
       
@@ -392,32 +385,32 @@ server <- function(input, output, session) {
       if (isTRUE(input$ByStressors) && !is.null(input$checkStressors)) {
         
         for (stressor_name in input$checkStressors) {
-          
-          # Generate the filtered data frame using the helper function
-          data_stressor <- generate_stressor_data(stressor_name)
-          
-          # Only add the sheet if the resulting data table has rows
-          if (nrow(data_stressor) > 0) {
             
-            # Clean up the stressor name for the sheet tab
-            sheet_name <- gsub("[^[:alnum:]]", "_", stressor_name)
-            # Shorten the name if it's too long (Excel sheet name limit is 31 characters)
-            if (nchar(sheet_name) > 31) {
-              sheet_name <- substr(sheet_name, 1, 28)
-              sheet_name <- paste0(sheet_name, "...")
+            # Generate the filtered data frame using the helper function
+            data_stressor <- generate_stressor_data(stressor_name)
+            
+            # Only add the sheet if the resulting data table has rows
+            if (nrow(data_stressor) > 0) {
+                
+                # Clean up the stressor name for the sheet tab
+                sheet_name <- gsub("[^[:alnum:]]", "_", stressor_name)
+                # Shorten the name if it's too long (Excel sheet name limit is 31 characters)
+                if (nchar(sheet_name) > 31) {
+                    sheet_name <- substr(sheet_name, 1, 28)
+                    sheet_name <- paste0(sheet_name, "...")
+                }
+                
+                output_list[[sheet_name]] <- data_stressor
             }
-            
-            output_list[[sheet_name]] <- data_stressor
-          }
         }
       }
       
       # 4. Write the list of data frames to a multi-sheet XLSX file
       if (length(output_list) > 0) {
-        writexl::write_xlsx(output_list, path = file)
+          writexl::write_xlsx(output_list, path = file)
       } else {
-        # Handle the case where no tables were generated (e.g., if no species were selected)
-        stop("No data selected to download.")
+          # Handle the case where no tables were generated (e.g., if no species were selected)
+          stop("No data selected to download.")
       }
     }
   )
