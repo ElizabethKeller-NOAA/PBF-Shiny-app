@@ -2,37 +2,30 @@
 # R Shiny app to make PBF tables #
 ##################################
 
-# wrap global setup code in Local()
+# load packages
+library(data.table)
+library(shiny)
+library(bslib)
+library(writexl) # Required for writing XLSX files
+library(DT) # Ensure DT is loaded if you use DT::renderDataTable
 
-local({
-  # load packages
-  library(data.table)
-  library(shiny)
-  library(bslib)
-  library(writexl) # Required for writing XLSX files
-  library(DT) # Ensure DT is loaded if you use DT::renderDataTable
-  
-  # read in data; using csv for now
-  PBFs <- read.csv("data/PBFs for Shiny app test.csv")
-  
-  # data wrangling to make it the right format
-  # creates species+ESU/DPS; no separator if no ESU/DPS
-  PBFs$Species_full <- ifelse(
-    is.na(PBFs$ESU_DPS) | PBFs$ESU_DPS == "",
-    PBFs$Species,
-    paste0(PBFs$Species, " – ", PBFs$ESU_DPS)
-  )
-  # Sort the PBFs data frame alphabetically by Species_full
-  PBFs <- PBFs[order(PBFs$Species_full), ]
-  
-  # Define Stressors globally
-  # This variable definition MUST be correct for your data:
-  Stressors <- as.character(colnames(PBFs)[15:41])
-  
-  # --- Attach variables to the global environment for access by ui/server ---
-  assign("PBFs", PBFs, envir = .GlobalEnv)
-  assign("Stressors", Stressors, envir = .GlobalEnv)
-})
+# read in data; using csv for now
+# NOTE: Replace "data/PBFs for Shiny app test.csv" with your actual path
+PBFs <- read.csv("data/PBFs for Shiny app test.csv")
+
+# data wrangling to make it the right format
+# creates species+ESU/DPS; no separator if no ESU/DPS
+PBFs$Species_full <- ifelse(
+  is.na(PBFs$ESU_DPS) | PBFs$ESU_DPS == "",
+  PBFs$Species,
+  paste0(PBFs$Species, " – ", PBFs$ESU_DPS)
+)
+# Sort the PBFs data frame alphabetically by Species_full
+PBFs <- PBFs[order(PBFs$Species_full), ]
+
+# Define Stressors globally
+# This variable definition MUST be correct for your data:
+Stressors <- as.character(colnames(PBFs)[15:41])
 
 # UI Definition ---
 
@@ -73,8 +66,8 @@ ui <- page_fillable(
   # =========================================================
   conditionalPanel(
     condition = "input.preview == 0",
-
-      
+    
+    
     layout_columns(
       # Arrange inputs fluidly across the top
       col_widths = c(6, 3, 3), 
@@ -115,15 +108,15 @@ ui <- page_fillable(
     conditionalPanel(
       condition = "input.ByStressors == true",
       layout_columns(
-      card(
-        card_header("Select Stressors"),
-        checkboxGroupInput(
-          "checkStressors_init",
-          label = NULL,
-          choices = Stressors
+        card(
+          card_header("Select Stressors"),
+          checkboxGroupInput(
+            "checkStressors_init",
+            label = NULL,
+            choices = Stressors
+          )
         )
-      )
-    ))
+      ))
     # ------------------------------------------------------------------
   ), # END Initial State
   
@@ -191,12 +184,6 @@ ui <- page_fillable(
   ) # END Active State
 )
 
-# put all PBFs in one cell (not separate rows) # format PBFs as bulletted (for Word version)
-# want to combine species in a row if all the PBFs are the same
-
-
-# ---------------------------------------------------------------------------------
-
 # Define server logic ----
 
 server <- function(input, output, session) { 
@@ -230,7 +217,11 @@ server <- function(input, output, session) {
   
   # Observe 1: Stores the stressor selections immediately
   observe({
-    current_stressor_selections(input$checkStressors)
+    # We check both the initial input and the dynamic input, prioritizing the dynamic one if present
+    # This also helps capture the initial state when the layout switches (as 'checkStressors' will then exist)
+    if (!is.null(input$checkStressors)) {
+      current_stressor_selections(input$checkStressors)
+    }
   })
   
   # Observe 2: Initializes inputs upon layout switch
@@ -240,6 +231,7 @@ server <- function(input, output, session) {
     initial_stressor_values <- input$checkStressors_init
     
     # 1. Update Critical Habitat/Species Selections (Static Input):
+    # This ensures the selection is maintained across states
     updateCheckboxGroupInput(
       session = session,
       inputId = "checkSpecies",
@@ -286,8 +278,19 @@ server <- function(input, output, session) {
     )
   })
   
-  
   # --- Dynamic Tab and Table Rendering ---
+  
+  # Function to generate the data for a specific stressor tab (Used for both display and download)
+  generate_stressor_data <- function(stressor_name) {
+    data_to_filter <- base_filtered_data() 
+    
+    filter_condition <- (data_to_filter[[stressor_name]] == 1) & 
+      (!is.na(data_to_filter[[stressor_name]]))
+    
+    # Note: We return a standard data frame/tibble here for writexl
+    final_data <- data_to_filter[filter_condition, c("Species_full", "PBF")]
+    return(final_data)
+  }
   
   output$main_tabs <- renderUI({
     
@@ -320,13 +323,7 @@ server <- function(input, output, session) {
         # Define the rendering for the current table dynamically
         output[[output_id]] <- DT::renderDataTable({
           
-          # base_filtered_data() is now correctly defined and accessible
-          data_to_filter <- base_filtered_data() 
-          
-          filter_condition <- (data_to_filter[[stressor_name]] == 1) & 
-            (!is.na(data_to_filter[[stressor_name]]))
-          
-          final_data <- data_to_filter[filter_condition, c("Species_full", "PBF")]
+          final_data <- generate_stressor_data(stressor_name)
           
           DT::datatable(
             data = final_data,
@@ -370,6 +367,60 @@ server <- function(input, output, session) {
       options = list(pageLength = 100, lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All')))
     )
   })
+  
+  # 4. DOWNLOAD HANDLER FOR XLSX (NEW)
+  # ----------------------------------------------------------------------------------
+  output$downloadxlsx <- downloadHandler(
+    filename = function() {
+      paste("PBF_Tables-", Sys.Date(), ".xlsx", sep="")
+    },
+    content = function(file) {
+      
+      # 1. Initialize an empty list to hold data frames for each sheet
+      output_list <- list()
+      
+      # 2. Add the "Combined Species Data" table if checked
+      if (isTRUE(input$BySpecies)) {
+        # Ensure base_filtered_data is triggered and contains data
+        data_species <- base_filtered_data() 
+        if (nrow(data_species) > 0) {
+          output_list[["Combined_PBFs"]] <- data_species[, c("Species_full", "PBF")]
+        }
+      }
+      
+      # 3. Add the "By Stressor" tables if checked
+      if (isTRUE(input$ByStressors) && !is.null(input$checkStressors)) {
+        
+        for (stressor_name in input$checkStressors) {
+          
+          # Generate the filtered data frame using the helper function
+          data_stressor <- generate_stressor_data(stressor_name)
+          
+          # Only add the sheet if the resulting data table has rows
+          if (nrow(data_stressor) > 0) {
+            
+            # Clean up the stressor name for the sheet tab
+            sheet_name <- gsub("[^[:alnum:]]", "_", stressor_name)
+            # Shorten the name if it's too long (Excel sheet name limit is 31 characters)
+            if (nchar(sheet_name) > 31) {
+              sheet_name <- substr(sheet_name, 1, 28)
+              sheet_name <- paste0(sheet_name, "...")
+            }
+            
+            output_list[[sheet_name]] <- data_stressor
+          }
+        }
+      }
+      
+      # 4. Write the list of data frames to a multi-sheet XLSX file
+      if (length(output_list) > 0) {
+        writexl::write_xlsx(output_list, path = file)
+      } else {
+        # Handle the case where no tables were generated (e.g., if no species were selected)
+        stop("No data selected to download.")
+      }
+    }
+  )
 }
 
 # Run the app ----
