@@ -11,7 +11,8 @@ library(DT) # Ensure DT is loaded if you use DT::renderDataTable
 
 # read in data; using csv for now
 # NOTE: Replace "data/PBFs for Shiny app test.csv" with your actual path
-PBFs <- read.csv("data/PBFs for Shiny app test.csv")
+#PBFs <- read.csv("data/PBFs for Shiny app test.csv")
+PBFs <- read.csv("data/All PBFs - Stressor Categories.csv") # updated file
 
 # data wrangling to make it the right format
 # creates species+ESU/DPS; no separator if no ESU/DPS
@@ -25,7 +26,7 @@ PBFs <- PBFs[order(PBFs$Species_full), ]
 
 # Define Stressors globally
 # This variable definition MUST be correct for your data:
-Stressors <- as.character(colnames(PBFs)[15:41])
+Stressors <- as.character(colnames(PBFs)[15:length(PBFs)])
 
 # UI Definition ---
 
@@ -138,8 +139,8 @@ ui <- page_fillable(
         # 1. Downloads (Now #1 in stack)
         card(
           card_header("Downloads"),
-          downloadButton("downloadxlsx", label = "Download .xlsx"),
-          downloadButton("downloaddocx", label = "Download .docx"),
+          downloadButton("downloadxlsx", label = "Download Table(s) as xlsx"),
+          downloadButton("downloaddocx", label = "Download Table(s) as docx"),
         ),
         
         # 2. Conditional Stressor Checkboxes (DYNAMIC INPUT - RESTORED)
