@@ -16,22 +16,41 @@ PBFs <- PBFs[order(PBFs$Species_full), ]
 # row format for Species tables
 library(dplyr)
 
-# 1. Define the species you want to keep
+# Define the species you want to keep
 selected_species <- c("Atlantic Salmon – Gulf of Maine DPS","Atlantic Sturgeon – Carolina DPS", "Atlantic Sturgeon – Chesapeake Bay DPS") # test species
 
-# 2. Process the dataframe
-final_table <- PBFs %>%
-  # Keep only the species in your list
-  filter(Species_full %in% selected_species) %>%
-  # Group by Species so the collapse happens for each unique name
-  group_by(Species_full) %>%
-  # Combine PBF values into a single string, separated by a comma
-  summarize(PBF = paste(unique(PBF), collapse = "\n"), .groups = "drop") %>%
-  # Ensure only Species and PBF columns remain (summarize does this automatically)
-  select(Species_full, PBF)
 
-# View the result
-View(final_table)
+library(dplyr)
+library(flextable)
+
+# 1. Prepare data with the bullet character
+final_table_formatted <- PBFs %>%
+  filter(Species_full %in% selected_species) %>%
+  group_by(Species_full) %>%
+  summarize(
+    # \u2022 is the bullet, \t is a tab (Word recognizes this!)
+    PBF_text = paste0("\u2022\t", unique(PBF), collapse = "\n"), 
+    .groups = "drop"
+  )
+
+# 2. Create the Flextable
+ft <- flextable(final_table_formatted) %>%
+  # Basic formatting
+  theme_booktabs() %>%
+  valign(j = "PBF_text", valign = "top") %>%
+  
+  # Set the header names
+  set_header_labels(Species_full = "Species", PBF_text = "PBF") %>%
+  
+  # Control the width so Word has room to wrap the text
+  width(j = "Species_full", width = 2) %>%
+  width(j = "PBF_text", width = 4.5) %>%
+  
+  # Add simple padding to the cell for a clean look
+  padding(j = "PBF_text", padding.left = 10, part = "body")
+
+# 3. View the table
+ft
 
 # let's see how it looks in Excel
 # Install the package if you haven't already
