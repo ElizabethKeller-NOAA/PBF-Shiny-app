@@ -36,16 +36,18 @@ View(final_table)
 # let's see how it looks in Excel
 # Install the package if you haven't already
 # install.packages("writexl")
-
 library(writexl)
 
 # Save the table
 write_xlsx(final_table, "Species_PBF_Report.xlsx")
 
+#RMarkdown format with bullets
 
 
+# ***add PBF categories?!!
 
-# row format for Stressprs/Categories tables
+
+# row format for Stressors/Categories tables
 # *need to ALSO filter by species here
 
 # 1. Define the category you want to subset by
@@ -68,12 +70,10 @@ category_table <- PBFs %>%
 write_xlsx(category_table, "Food_PBF_Report.xlsx")
 
 
-# ***add PBF categories?!!
 
 
-
-# automate for a list of categories
-
+# automate for a list of stressors/categories
+# current_stressor_selections **is this the right value for list of stressors?
 library(dplyr)
 library(purrr) # Part of tidyverse, great for lists
 
