@@ -1,0 +1,28 @@
+---
+title: "PBF Summary Report"
+output: word_document
+params:
+  data_list: NA
+---
+
+# Combined Species Table
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(flextable)
+
+# 1. Get the data
+df <- params$data_list[[1]]
+
+# 2. Create the flextable object
+ft <- flextable(df)
+
+# 3. Set widths (measurements are in inches)
+ft <- width(ft, j = 1, width = 1.5) # Species_full
+ft <- width(ft, j = 2, width = 5.0) # PBF
+
+# 4. Add some basic professional formatting
+ft <- theme_vanilla(ft)
+ft <- set_header_labels(ft, Species_full = "Species/ESU/DPS", PBF = "Physical or Biological Feature")
+
+# 5. Display the table
+ft

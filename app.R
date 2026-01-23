@@ -8,6 +8,7 @@ library(shiny)
 library(bslib)
 library(writexl) # Required for writing XLSX files
 library(DT) # Ensure DT is loaded if you use DT::renderDataTable
+library(flextable)
 
 # read in data; using csv for now
 PBFs <- read.csv("data/All PBFs - Stressor Categories.csv") 
@@ -201,7 +202,7 @@ server <- function(input, output, session) {
     filter_condition <- (data_to_filter[[stressor_name]] == 1) & 
       (!is.na(data_to_filter[[stressor_name]]))
     
-    final_data <- data_to_filter[filter_condition, c("Species_full", "PBF")]
+    final_data <- data_to_filter[filter_condition, c("Species_full", "PBF_category", "PBF")]
     return(final_data)
   }
   
@@ -258,7 +259,7 @@ server <- function(input, output, session) {
   })
   
   output$PBFtable_BySpecies <- DT::renderDataTable({
-    data <- base_filtered_data()[, c("Species_full", "PBF")]
+    data <- base_filtered_data()[, c("Species_full", "PBF_category", "PBF")]
     DT::datatable(
       data = data,
       rownames = FALSE,
@@ -272,7 +273,7 @@ server <- function(input, output, session) {
     if (isTRUE(input$BySpecies)) {
       data_species <- base_filtered_data() 
       if (nrow(data_species) > 0) {
-        output_list[["Combined_PBFs"]] <- data_species[, c("Species_full", "PBF")]
+        output_list[["Combined_PBFs"]] <- data_species[, c("Species_full","PBF_category", "PBF")]
       }
     }
     
@@ -295,10 +296,30 @@ server <- function(input, output, session) {
     content = download_logic_xlsx
   )
   
-  # (Docx handler left as-is for now until we integrate your specific pivot request)
+  # Docx handler
   output$downloaddocx <- output$downloaddocx_sidebar <- downloadHandler(
-    filename = function() { paste("PBF_Tables-", Sys.Date(), ".docx", sep="") },
-    content = function(file) { # Your original docx logic would go here
+    filename = function() { "PBF_Report.docx" },
+    content = function(file) {
+      
+      # 1. Get the data
+      simple_df <- base_filtered_data()[, c("Species_full", "PBF_category","PBF")]
+      
+      # 2. Explicitly remove row names in the dataframe object itself
+      rownames(simple_df) <- NULL
+      
+      # 3. Pack the list
+      tables_to_send <- list(test_data = simple_df)
+      
+      # 4. Standard render process
+      temp_rmd <- file.path(tempdir(), "report_template.Rmd")
+      file.copy("report_template.Rmd", temp_rmd, overwrite = TRUE)
+      
+      rmarkdown::render(
+        input = temp_rmd,
+        output_file = file,
+        params = list(data_list = tables_to_send),
+        envir = new.env(parent = globalenv())
+      )
     }
   )
 }
