@@ -11,53 +11,63 @@ params:
 library(flextable)
 library(dplyr)
 library(tidyr)
+library(officer)
 
 # 1. Get the data
+# Using [[1]] is safest if there is only one table, 
+# or use params$data_list[["Combined Species List"]] if named.
 df <- params$data_list[[1]]
 
-# 2. DATA TRANSFORMATION
-# We want one row per Species_full. 
-# Inside the PBF column, we will construct the Category + Bulleted List string.
-formatted_df <- df %>%
-  group_by(Species_full, PBF_category) %>%
-  # Create a bulleted list for each category
-summarise(
-      category_block = if(all(PBF_category == "")) {
-        # CASE A: No Category exists - just the bullets
-        paste0("  • ", PBF, collapse = "\n")
-      } else {
-        # CASE B: Category exists - Header + Colon + Bullets
-        paste0(PBF_category, ":\n", 
-               paste0("  • ", PBF, collapse = "\n"))
-      },
-    .groups = "drop"
-  ) %>%
-  group_by(Species_full) %>%
-  # Combine all categories for that species into one big text block
-  summarise(
-    PBF_Final_List = paste(category_block, collapse = "\n\n"),
-    .groups = "drop"
+# Safety check: If df is NULL, stop and print a message instead of crashing
+if (is.null(df)) {
+  cat("No data was found in the provided list.")
+} else {
+
+  # 2. DATA TRANSFORMATION
+  formatted_df <- df %>%
+    # Ensure Categories are handled
+    mutate(PBF_category = ifelse(is.na(PBF_category), "", PBF_category)) %>%
+    
+    # STAGE 1: Group by Species and Category
+    group_by(Species_full, PBF_category) %>%
+    summarise(
+      # The unique() here is what stops the PBFs and Categories from repeating
+      pbf_list = paste0("  • ", unique(PBF), collapse = "\n"),
+      .groups = "drop"
+    ) %>%
+    
+    # STAGE 2: Combine categories into the final block
+    mutate(
+      category_block = if_else(PBF_category == "", 
+                               pbf_list, 
+                               paste0(PBF_category, ":\n", pbf_list))
+    ) %>%
+    group_by(Species_full) %>%
+    summarise(
+      PBF_Final_List = paste(category_block, collapse = "\n\n"),
+      .groups = "drop"
+    )
+
+  # 3. Create the flextable
+  ft <- flextable(formatted_df)
+
+  # 4. Formatting
+  ft <- theme_vanilla(ft)
+  ft <- width(ft, j = 1, width = 1.5)
+  ft <- width(ft, j = 2, width = 5.0)
+
+  # Set Headers
+  ft <- set_header_labels(ft, 
+      Species_full = "Species (ESU/DPS)", 
+      PBF_Final_List = "Physical or Biological Features"
   )
 
-# 3. Create the flextable
-ft <- flextable(formatted_df)
+  # Align text to top
+  ft <- valign(ft, valign = "top", part = "all")
 
-# 4. Formatting
-ft <- theme_vanilla(ft)
-ft <- width(ft, j = 1, width = 1.5)
-ft <- width(ft, j = 2, width = 5.0)
+  # Add borders between species
+  ft <- border_inner_h(ft, border = fp_border(color="gray80", width = 1))
 
-# Set Headers
-ft <- set_header_labels(ft, 
-    Species_full = "Species/ESU/DPS", 
-    PBF_Final_List = "Physical or Biological Features"
-)
-
-# Align text to top so long lists look right
-ft <- valign(ft, valign = "top", part = "all")
-
-# Optional: Add borders between species to make the list readable
-ft <- border_inner_h(ft, border = officer::fp_border(color="gray80", width = 1))
-
-# 5. Display
-ft
+  # 5. Display
+  ft
+}
