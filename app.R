@@ -297,29 +297,35 @@ server <- function(input, output, session) {
   )
   
   # Docx handler
+  # Docx handler - Unified for both buttons
   output$downloaddocx <- output$downloaddocx_sidebar <- downloadHandler(
-    filename = function() { "PBF_Report.docx" },
+    filename = function() { paste("PBF_Report-", Sys.Date(), ".docx", sep="") },
     content = function(file) {
       
-      # 1. Get the data
-      simple_df <- base_filtered_data()[, c("Species_full", "PBF_category","PBF")]
+      # 1. Start list with the Species Data from your actual reactive
+      final_list <- list("Species Summary" = base_filtered_data())
       
-      # 2. Explicitly remove row names in the dataframe object itself
-      rownames(simple_df) <- NULL
+      # 2. Determine which stressors were selected based on app state
+      current_stressors <- if(input$preview == 0) input$checkStressors_init else input$checkStressors
       
-      # 3. Pack the list
-      tables_to_send <- list(test_data = simple_df)
+      # 3. Loop through and add stressor data frames using your existing function
+      if (isTRUE(input$ByStressors) && !is.null(current_stressors)) {
+        for (st in current_stressors) {
+          st_data <- generate_stressor_data(st)
+          if (nrow(st_data) > 0) {
+            final_list[[st]] <- st_data
+          }
+        }
+      }
       
-      # 4. Standard render process
-      temp_rmd <- file.path(tempdir(), "report_template.Rmd")
-      file.copy("report_template.Rmd", temp_rmd, overwrite = TRUE)
+      # 4. Pass the list to the Rmd
+      params <- list(data_list = final_list)
       
-      rmarkdown::render(
-        input = temp_rmd,
-        output_file = file,
-        params = list(data_list = tables_to_send),
-        envir = new.env(parent = globalenv())
-      )
+      # 5. Render
+      rmarkdown::render("report_template.Rmd", 
+                        output_file = file,
+                        params = params,
+                        envir = new.env(parent = globalenv()))
     }
   )
 }

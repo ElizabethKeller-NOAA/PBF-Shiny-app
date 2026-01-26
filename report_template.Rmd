@@ -5,69 +5,88 @@ params:
   data_list: NA
 ---
 
-# Species Critical Habitat PBFs
+# Physical and Biological Features of Critical Habitat in the Action Area
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r species_table, echo=FALSE, message=FALSE, warning=FALSE}
 library(flextable)
 library(dplyr)
 library(tidyr)
 library(officer)
 
-# 1. Get the data
-# Using [[1]] is safest if there is only one table, 
-# or use params$data_list[["Combined Species List"]] if named.
-df <- params$data_list[[1]]
+# --- 1. SPECIES SUMMARY TABLE ---
+df_spp <- params$data_list[[1]]
 
-# Safety check: If df is NULL, stop and print a message instead of crashing
-if (is.null(df)) {
-  cat("No data was found in the provided list.")
-} else {
-
-  # 2. DATA TRANSFORMATION
-  formatted_df <- df %>%
-    # Ensure Categories are handled
-    mutate(PBF_category = ifelse(is.na(PBF_category), "", PBF_category)) %>%
-    
-    # STAGE 1: Group by Species and Category
+if (!is.null(df_spp)) {
+  ft_spp <- df_spp %>%
+    mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(Species_full, PBF_category) %>%
     summarise(
-      # The unique() here is what stops the PBFs and Categories from repeating
       pbf_list = paste0("  • ", unique(PBF), collapse = "\n"),
       .groups = "drop"
     ) %>%
-    
-    # STAGE 2: Combine categories into the final block
-    mutate(
-      category_block = if_else(PBF_category == "", 
-                               pbf_list, 
-                               paste0(PBF_category, ":\n", pbf_list))
-    ) %>%
+    mutate(category_block = if_else(PBF_category == "", 
+                                    pbf_list, 
+                                    paste0(PBF_category, ":\n", pbf_list))) %>%
     group_by(Species_full) %>%
     summarise(
-      PBF_Final_List = paste(category_block, collapse = "\n\n"),
+      `Species (ESU/DPS)` = first(Species_full),
+      `Physical and Biological Features` = paste(category_block, collapse = "\n\n"),
       .groups = "drop"
-    )
+    ) %>%
+    select(-Species_full) %>%
+    flextable() %>%
+    theme_vanilla() %>%
+    width(j = 1, width = 1.5) %>% 
+    width(j = 2, width = 5.0) %>%
+    valign(valign = "top", part = "all") %>%
+    border_inner_h(border = fp_border(color="gray80", width = 1))
 
-  # 3. Create the flextable
-  ft <- flextable(formatted_df)
-
-  # 4. Formatting
-  ft <- theme_vanilla(ft)
-  ft <- width(ft, j = 1, width = 1.5)
-  ft <- width(ft, j = 2, width = 5.0)
-
-  # Set Headers
-  ft <- set_header_labels(ft, 
-      Species_full = "Species (ESU/DPS)", 
-      PBF_Final_List = "Physical or Biological Features"
-  )
-
-  # Align text to top
-  ft <- valign(ft, valign = "top", part = "all")
-
-  # Add borders between species
-  ft <- border_inner_h(ft, border = fp_border(color="gray80", width = 1))
-
-  # 5. Display
-  ft
+  ft_spp
 }
+
+# --- 2. DEFINE STRESSOR FORMATTING FUNCTION ---
+format_st_table <- function(df) {
+  df %>%
+    mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
+    group_by(PBF_category, PBF) %>%
+    summarise(
+      Species_List = paste0(unique(Species_full), collapse = "\n"),
+      .groups = "drop"
+    ) %>%
+    mutate(PBF_Display = if_else(PBF_category == "", 
+                                 PBF, 
+                                 paste0(PBF_category, ": ", PBF))) %>%
+    select(`Physical and Biological Feature` = PBF_Display, 
+           `Associated Species` = Species_List) %>%
+    flextable() %>%
+    theme_vanilla() %>%
+    width(j = 1, width = 3.5) %>% 
+    width(j = 2, width = 3.0) %>%
+    valign(valign = "top", part = "all") %>%
+    border_inner_h(border = fp_border(color="gray80", width = 1))
+}
+```
+
+\newpage
+
+# `r if(length(params$data_list) >= 2) names(params$data_list)[2]`
+
+```{r s1, echo=FALSE}
+if(length(params$data_list) >= 2) format_st_table(params$data_list[[2]])
+```
+
+\newpage
+
+# `r if(length(params$data_list) >= 3) names(params$data_list)[3]`
+
+```{r s2, echo=FALSE}
+if(length(params$data_list) >= 3) format_st_table(params$data_list[[3]])
+```
+
+\newpage
+
+# `r if(length(params$data_list) >= 4) names(params$data_list)[4]`
+
+```{r s3, echo=FALSE}
+if(length(params$data_list) >= 4) format_st_table(params$data_list[[4]])
+```
