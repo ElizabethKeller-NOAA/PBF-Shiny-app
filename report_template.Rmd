@@ -12,8 +12,9 @@ library(flextable)
 library(dplyr)
 library(tidyr)
 library(officer)
+library(knitr)
 
-# --- THE SPECIES SUMMARY FORMAT ---
+# --- 1. THE SPECIES SUMMARY FORMAT ---
 render_species_summary <- function(df) {
   df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
@@ -40,7 +41,7 @@ render_species_summary <- function(df) {
     border_inner_h(border = fp_border(color="gray80", width = 1))
 }
 
-# --- THE STRESSOR/OTHERS FORMAT ---
+# --- 2. THE STRESSOR/OTHERS FORMAT ---
 format_st_table <- function(df) {
   df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
@@ -63,41 +64,48 @@ format_st_table <- function(df) {
 }
 ```
 
-```{r summary_render, echo=FALSE}
-# Always show the first table (Species Summary)
-if(length(params$data_list) >= 1) render_species_summary(params$data_list[[1]])
+```{r summary_render, echo=FALSE, message=FALSE}
+# Render the Summary Table (First item in the list)
+if(!is.null(params$data_list) && length(params$data_list) >= 1) {
+  render_species_summary(params$data_list[[1]])
+}
 ```
 
-\newpage
-
-# `r if(length(params$data_list) >= 2) names(params$data_list)[2]`
-
-```{r s1, echo=FALSE}
-if(length(params$data_list) >= 2) format_st_table(params$data_list[[2]])
+```{r loop_render, echo=FALSE, results='asis', message=FALSE}
+# --- 3. DYNAMIC LOOP FOR ALL SELECTED STRESSORS ---
+# We start from index 2 to skip the summary table
+if(!is.null(params$data_list) && length(params$data_list) >= 2) {
+  
+  # Identify all list items EXCEPT the first one (Summary)
+  # and EXCEPT "Outside Selection" (we'll do that last)
+  item_names <- names(params$data_list)
+  stressor_indices <- which(item_names != "Outside Selection" & seq_along(item_names) > 1)
+  
+  for (i in stressor_indices) {
+    # 1. Force a page break
+    cat("\n\n\\newpage\n\n")
+    
+    # 2. Print the Stressor Name as a Header
+    cat("# ", item_names[i], "\n\n")
+    
+    # 3. Create the table
+    ft <- format_st_table(params$data_list[[i]])
+    
+    # 4. CRITICAL STEP: Use knit_print to force flextable to appear in Word
+    # Inside a results='asis' chunk, this is required.
+    cat(knitr::knit_print(ft))
+    cat("\n\n")
+  }
+}
 ```
 
-\newpage
-
-# `r if(length(params$data_list) >= 3) names(params$data_list)[3]`
-
-```{r s2, echo=FALSE}
-if(length(params$data_list) >= 3) format_st_table(params$data_list[[3]])
-```
-
-\newpage
-
-# `r if(length(params$data_list) >= 4) names(params$data_list)[4]`
-
-```{r s3, echo=FALSE}
-if(length(params$data_list) >= 4) format_st_table(params$data_list[[4]])
-```
-
-\newpage
-
-# `r if("Outside Selection" %in% names(params$data_list)) "Outside Selection"`
-
-```{r others, echo=FALSE}
+```{r others_render, echo=FALSE, results='asis', message=FALSE}
+# --- 4. FINAL TABLE: OUTSIDE SELECTION ---
 if("Outside Selection" %in% names(params$data_list)) {
-  format_st_table(params$data_list[["Outside Selection"]])
+    cat("\n\n\\newpage\n\n")
+    cat("# Outside Selection\n\n")
+    
+    ft_others <- format_st_table(params$data_list[["Outside Selection"]])
+    cat(knitr::knit_print(ft_others))
 }
 ```
