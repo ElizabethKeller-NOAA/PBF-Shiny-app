@@ -5,19 +5,17 @@ params:
   data_list: NA
 ---
 
-# Physical and Biological Features of Critical Habitat in the Action Area
+# Physical and Biological Features of Critical Habitat
 
-```{r species_table, echo=FALSE, message=FALSE, warning=FALSE}
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
 library(flextable)
 library(dplyr)
 library(tidyr)
 library(officer)
 
-# --- 1. SPECIES SUMMARY TABLE ---
-df_spp <- params$data_list[[1]]
-
-if (!is.null(df_spp)) {
-  ft_spp <- df_spp %>%
+# --- THE SPECIES SUMMARY FORMAT ---
+render_species_summary <- function(df) {
+  df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(Species_full, PBF_category) %>%
     summarise(
@@ -29,8 +27,8 @@ if (!is.null(df_spp)) {
                                     paste0(PBF_category, ":\n", pbf_list))) %>%
     group_by(Species_full) %>%
     summarise(
-      `Species (ESU/DPS)` = first(Species_full),
-      `Physical and Biological Features` = paste(category_block, collapse = "\n\n"),
+      'Species (ESU/DPS)' = first(Species_full),
+      'Physical and Biological Features' = paste(category_block, collapse = "\n\n"),
       .groups = "drop"
     ) %>%
     select(-Species_full) %>%
@@ -40,11 +38,9 @@ if (!is.null(df_spp)) {
     width(j = 2, width = 5.0) %>%
     valign(valign = "top", part = "all") %>%
     border_inner_h(border = fp_border(color="gray80", width = 1))
-
-  ft_spp
 }
 
-# --- 2. DEFINE STRESSOR FORMATTING FUNCTION ---
+# --- THE STRESSOR/OTHERS FORMAT ---
 format_st_table <- function(df) {
   df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
@@ -56,8 +52,8 @@ format_st_table <- function(df) {
     mutate(PBF_Display = if_else(PBF_category == "", 
                                  PBF, 
                                  paste0(PBF_category, ": ", PBF))) %>%
-    select(`Physical and Biological Feature` = PBF_Display, 
-           `Associated Species` = Species_List) %>%
+    select('Physical and Biological Feature' = PBF_Display, 
+           'Associated Species' = Species_List) %>%
     flextable() %>%
     theme_vanilla() %>%
     width(j = 1, width = 3.5) %>% 
@@ -65,6 +61,11 @@ format_st_table <- function(df) {
     valign(valign = "top", part = "all") %>%
     border_inner_h(border = fp_border(color="gray80", width = 1))
 }
+```
+
+```{r summary_render, echo=FALSE}
+# Always show the first table (Species Summary)
+if(length(params$data_list) >= 1) render_species_summary(params$data_list[[1]])
 ```
 
 \newpage
@@ -89,4 +90,14 @@ if(length(params$data_list) >= 3) format_st_table(params$data_list[[3]])
 
 ```{r s3, echo=FALSE}
 if(length(params$data_list) >= 4) format_st_table(params$data_list[[4]])
+```
+
+\newpage
+
+# `r if("Outside Selection" %in% names(params$data_list)) "Outside Selection"`
+
+```{r others, echo=FALSE}
+if("Outside Selection" %in% names(params$data_list)) {
+  format_st_table(params$data_list[["Outside Selection"]])
+}
 ```
