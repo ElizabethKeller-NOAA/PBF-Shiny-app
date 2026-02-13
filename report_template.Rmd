@@ -3,6 +3,7 @@ title: "PBF Summary Report"
 output: word_document
 params:
   data_list: NA
+  pbf_column: "PBF"
 ---
 
 # Physical and Biological Features of Critical Habitat
@@ -14,13 +15,17 @@ library(tidyr)
 library(officer)
 library(knitr)
 
+# Identify the target column passed from Shiny
+target_col <- params$pbf_column
+
 # --- 1. THE SPECIES SUMMARY FORMAT ---
 render_species_summary <- function(df) {
   df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(Species_full, PBF_category) %>%
     summarise(
-      pbf_list = paste0("  • ", unique(PBF), collapse = "\n"),
+      # Uses .data[[target_col]] to dynamically pick the PBF or Shorter_PBFs column
+      pbf_list = paste0("  • ", unique(.data[[target_col]]), collapse = "\n"),
       .groups = "drop"
     ) %>%
     mutate(category_block = if_else(PBF_category == "", 
@@ -45,14 +50,14 @@ render_species_summary <- function(df) {
 format_st_table <- function(df) {
   df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
-    group_by(PBF_category, PBF) %>%
+    group_by(PBF_category, .data[[target_col]]) %>%
     summarise(
       Species_List = paste0(unique(Species_full), collapse = "\n"),
       .groups = "drop"
     ) %>%
     mutate(PBF_Display = if_else(PBF_category == "", 
-                                 PBF, 
-                                 paste0(PBF_category, ": ", PBF))) %>%
+                                 .data[[target_col]], 
+                                 paste0(PBF_category, ": ", .data[[target_col]]))) %>%
     select('Physical and Biological Feature' = PBF_Display, 
            'Associated Species' = Species_List) %>%
     flextable() %>%
@@ -65,7 +70,7 @@ format_st_table <- function(df) {
 ```
 
 ```{r summary_render, echo=FALSE, message=FALSE}
-# Render the Summary Table (First item in the list)
+# Render the Summary Table
 if(!is.null(params$data_list) && length(params$data_list) >= 1) {
   render_species_summary(params$data_list[[1]])
 }
@@ -73,26 +78,16 @@ if(!is.null(params$data_list) && length(params$data_list) >= 1) {
 
 ```{r loop_render, echo=FALSE, results='asis', message=FALSE}
 # --- 3. DYNAMIC LOOP FOR ALL SELECTED STRESSORS ---
-# We start from index 2 to skip the summary table
 if(!is.null(params$data_list) && length(params$data_list) >= 2) {
   
-  # Identify all list items EXCEPT the first one (Summary)
-  # and EXCEPT "Outside Selection" (we'll do that last)
   item_names <- names(params$data_list)
   stressor_indices <- which(item_names != "Outside Selection" & seq_along(item_names) > 1)
   
   for (i in stressor_indices) {
-    # 1. Force a page break
     cat("\n\n\\newpage\n\n")
-    
-    # 2. Print the Stressor Name as a Header
     cat("# ", item_names[i], "\n\n")
     
-    # 3. Create the table
     ft <- format_st_table(params$data_list[[i]])
-    
-    # 4. CRITICAL STEP: Use knit_print to force flextable to appear in Word
-    # Inside a results='asis' chunk, this is required.
     cat(knitr::knit_print(ft))
     cat("\n\n")
   }

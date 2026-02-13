@@ -10,6 +10,7 @@ library(DT)
 library(flextable)
 
 # 0. Load and Wrangle Data
+# Ensure this file path is correct for your local environment
 PBFs <- read.csv("data/All PBFs - Stressor Categories.csv") 
 
 PBFs$Species_full <- ifelse(
@@ -18,6 +19,8 @@ PBFs$Species_full <- ifelse(
   paste0(PBFs$Species, " – ", PBFs$ESU_DPS)
 )
 PBFs <- PBFs[order(PBFs$Species_full), ]
+
+# Identify Stressor Columns (Starts at column 15 based on your previous code)
 Stressors <- as.character(colnames(PBFs)[15:length(PBFs)])
 
 # UI Definition ---
@@ -34,12 +37,12 @@ ui <- page_fillable(
   ),
   
   # =========================================================
-  # 1. INITIAL STATE (Input Cards Fill Space)
+  # 1. INITIAL STATE
   # =========================================================
   conditionalPanel(
     condition = "input.preview == 0",
     layout_columns(
-      col_widths = c(8, 4), # Adjusted widths since Downloads are gone
+      col_widths = c(8, 4), 
       
       card(
         class = "wide-layout-species-card",
@@ -52,6 +55,11 @@ ui <- page_fillable(
         col_widths = 12, 
         card(
           card_header("Table Organization"),
+          # Selection for Text Length
+          radioButtons("pbf_length_init", "PBF Text Detail:",
+                       choices = list("Full Designation Text" = "PBF", "Summary PBFs" = "Shorter_PBFs"),
+                       selected = "PBF"),
+          hr(),
           checkboxInput("BySpecies", label = "Create one table of all PBFs by species"),
           checkboxInput("ByStressors", label = "Create tables of PBFs per stressor/category"),
           checkboxInput("ByOthers", label = "Create table of PBFs outside selected stressors"),
@@ -75,7 +83,7 @@ ui <- page_fillable(
   ), 
   
   # =========================================================
-  # 2. ACTIVE STATE (Sidebar + Wide Table Area)
+  # 2. ACTIVE STATE
   # =========================================================
   conditionalPanel(
     condition = "input.preview > 0",
@@ -84,11 +92,17 @@ ui <- page_fillable(
       sidebar = sidebar(
         width = 400, 
         
-        # DOWNLOADS ONLY APPEAR HERE NOW
         card(
           card_header("Downloads"),
           downloadButton("downloadxlsx_sidebar", label = "Download XLSX", class = "btn-outline-secondary"),
           downloadButton("downloaddocx_sidebar", label = "Download DOCX", class = "btn-outline-secondary"),
+        ),
+        
+        card(
+          card_header("Text Detail"),
+          radioButtons("pbf_length", label = NULL,
+                       choices = list("Full Designation Text" = "PBF", "Summary PBFs" = "Shorter_PBFs"),
+                       selected = "PBF")
         ),
         
         conditionalPanel(
@@ -119,6 +133,11 @@ ui <- page_fillable(
 # Server Logic ----
 server <- function(input, output, session) { 
   
+  # Reactive to track which column we are currently using
+  target_pbf_col <- reactive({
+    if(input$preview == 0) input$pbf_length_init else input$pbf_length
+  })
+  
   base_filtered_data <- reactive({
     spp_selection <- if(input$preview == 0) input$checkSpecies_init else input$checkSpecies
     if (is.null(spp_selection)) return(PBFs[0, ]) 
@@ -128,24 +147,30 @@ server <- function(input, output, session) {
   observeEvent(input$preview, {
     updateCheckboxGroupInput(session, "checkSpecies", selected = input$checkSpecies_init)
     updateCheckboxGroupInput(session, "checkStressors", selected = input$checkStressors_init)
+    updateRadioButtons(session, "pbf_length", selected = input$pbf_length_init)
   }, ignoreInit = TRUE)
   
   generate_stressor_data <- function(stressor_name) {
     data_to_filter <- base_filtered_data() 
     req(stressor_name %in% colnames(data_to_filter))
+    col_name <- target_pbf_col()
     filter_condition <- (data_to_filter[[stressor_name]] == 1) & (!is.na(data_to_filter[[stressor_name]]))
-    data_to_filter[filter_condition, c("Species_full", "PBF_category", "PBF")]
+    data_to_filter[filter_condition, c("Species_full", "PBF_category", col_name)]
   }
   
   generate_other_pbfs_data <- function() {
     data_to_filter <- base_filtered_data()
     current_stressors <- if(input$preview == 0) input$checkStressors_init else input$checkStressors
-    if (is.null(current_stressors) || length(current_stressors) == 0) return(data_to_filter[, c("Species_full", "PBF_category", "PBF")])
+    col_name <- target_pbf_col()
+    
+    if (is.null(current_stressors) || length(current_stressors) == 0) {
+      return(data_to_filter[, c("Species_full", "PBF_category", col_name)])
+    }
     
     selected_cols <- data_to_filter[, current_stressors, drop = FALSE]
     selected_cols[is.na(selected_cols)] <- 0
     is_outside <- rowSums(selected_cols == 1) == 0
-    data_to_filter[is_outside, c("Species_full", "PBF_category", "PBF")]
+    data_to_filter[is_outside, c("Species_full", "PBF_category", col_name)]
   }
   
   output$main_tabs <- renderUI({
@@ -178,15 +203,18 @@ server <- function(input, output, session) {
   })
   
   output$PBFtable_BySpecies <- DT::renderDataTable({
-    DT::datatable(base_filtered_data()[, c("Species_full", "PBF_category", "PBF")], rownames = FALSE, options = list(pageLength = -1, dom = 't'))
+    col_name <- target_pbf_col()
+    DT::datatable(base_filtered_data()[, c("Species_full", "PBF_category", col_name)], 
+                  rownames = FALSE, options = list(pageLength = -1, dom = 't'))
   })
   
-  # Download Handler Logic
+  # XLSX Download Handler
   output$downloadxlsx_sidebar <- downloadHandler(
     filename = function() { paste0("PBF_Tables_", Sys.Date(), ".xlsx") },
     content = function(file) {
       out <- list()
-      if (input$BySpecies) out[["Combined"]] <- base_filtered_data()[, c("Species_full","PBF_category", "PBF")]
+      col_name <- target_pbf_col()
+      if (input$BySpecies) out[["Combined"]] <- base_filtered_data()[, c("Species_full","PBF_category", col_name)]
       if (input$ByStressors && !is.null(input$checkStressors)) {
         for (st in input$checkStressors) out[[substr(st, 1, 31)]] <- generate_stressor_data(st)
       }
@@ -195,17 +223,28 @@ server <- function(input, output, session) {
     }
   )
   
+  # DOCX Download Handler
   output$downloaddocx_sidebar <- downloadHandler(
     filename = function() { paste0("PBF_Report_", Sys.Date(), ".docx") },
     content = function(file) {
       final_list <- list()
-      if(input$BySpecies) final_list[["Species Summary"]] <- base_filtered_data()
+      col_name <- target_pbf_col()
+      
+      if(input$BySpecies) {
+        # Subset to only the relevant columns for the Rmd
+        final_list[["Species Summary"]] <- base_filtered_data()[, c("Species_full", "PBF_category", col_name)]
+      }
+      
       if (input$ByStressors && !is.null(input$checkStressors)) {
         for (st in input$checkStressors) final_list[[st]] <- generate_stressor_data(st)
       }
+      
       if (input$ByOthers) final_list[["Outside Selection"]] <- generate_other_pbfs_data()
       
-      rmarkdown::render("report_template.Rmd", output_file = file, params = list(data_list = final_list))
+      # We pass the column name to params so the Rmd knows which column to use for bullets
+      rmarkdown::render("report_template.Rmd", 
+                        output_file = file, 
+                        params = list(data_list = final_list, pbf_column = col_name))
     }
   )
 }
