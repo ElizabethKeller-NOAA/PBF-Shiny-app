@@ -22,7 +22,7 @@ target_col <- params$pbf_column
 render_species_summary <- function(df) {
   df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
-    group_by(Species_full, PBF_category) %>%
+    group_by(Species, PBF_category) %>%
     summarise(
       # Uses .data[[target_col]] to dynamically pick the PBF or Shorter_PBFs column
       pbf_list = paste0("  • ", unique(.data[[target_col]]), collapse = "\n"),
@@ -31,13 +31,13 @@ render_species_summary <- function(df) {
     mutate(category_block = if_else(PBF_category == "", 
                                     pbf_list, 
                                     paste0(PBF_category, ":\n", pbf_list))) %>%
-    group_by(Species_full) %>%
+    group_by(Species) %>%
     summarise(
-      'Species (ESU/DPS)' = first(Species_full),
+      'Species (ESU/DPS)' = first(Species),
       'Physical and Biological Features' = paste(category_block, collapse = "\n\n"),
       .groups = "drop"
     ) %>%
-    select(-Species_full) %>%
+    select(-Species) %>%
     flextable() %>%
     theme_vanilla() %>%
     width(j = 1, width = 1.5) %>% 
@@ -52,7 +52,7 @@ format_st_table <- function(df) {
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(PBF_category, .data[[target_col]]) %>%
     summarise(
-      Species_List = paste0(unique(Species_full), collapse = "\n"),
+      Species_List = paste0(unique(Species), collapse = "\n"),
       .groups = "drop"
     ) %>%
     mutate(PBF_Display = if_else(PBF_category == "", 
