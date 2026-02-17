@@ -12,13 +12,13 @@ library(flextable)
 # 0. Load and Wrangle Data
 PBFs <- read.csv("data/All PBFs - Stressor Categories.csv") 
 
-PBFs$Species_full <- ifelse(
+PBFs$Species <- ifelse(
   is.na(PBFs$ESU_DPS) | PBFs$ESU_DPS == "",
-  PBFs$Species,
-  paste0(PBFs$Species, " – ", PBFs$ESU_DPS)
+  PBFs$Species_Name,
+  paste0(PBFs$Species_Name, " – ", PBFs$ESU_DPS)
 )
-PBFs <- PBFs[order(PBFs$Species_full), ]
-Stressors <- as.character(colnames(PBFs)[15:length(PBFs)])
+PBFs <- PBFs[order(PBFs$Species_Name), ]
+Stressors <- as.character(colnames(PBFs)[6:(length(PBFs)-1)])
 
 # UI Definition ---
 ui <- page_fillable(
@@ -55,9 +55,9 @@ ui <- page_fillable(
       col_widths = c(5, 4, 3),
       card(
         card_header("1. Table Organization"),
-        checkboxInput("BySpecies", "Combine all PBFs by Species", TRUE),
-        checkboxInput("ByStressors", "Create individual tables per Stressor", FALSE),
-        checkboxInput("ByOthers", "Include PBFs outside selected Stressors", FALSE)
+        checkboxInput("BySpecies", "Create a table of all PBFs by Species", TRUE),
+        checkboxInput("ByStressors", "Create individual tables per Stressor/Category", FALSE),
+        checkboxInput("ByOthers", "Include Table of PBFs outside selected Stressors", FALSE)
       ),
       card(
         card_header("2. PBF Text Detail"),
@@ -73,7 +73,7 @@ ui <- page_fillable(
     layout_columns(
       col_widths = c(6, 6),
       card(class = "selection-card", card_header("Choose Critical Habitats"),
-           checkboxGroupInput("checkSpecies_init", label = NULL, choices = unique(PBFs$Species_full))),
+           checkboxGroupInput("checkSpecies_init", label = NULL, choices = unique(PBFs$Species))),
       conditionalPanel(
         condition = "input.ByStressors == true",
         card(class = "selection-card", card_header("Select Stressors/Categories"),
@@ -98,7 +98,7 @@ ui <- page_fillable(
              radioButtons("pbf_length", NULL, choices = list("Full" = "PBF", "Summary" = "Shorter_PBFs"), selected = "PBF")),
         conditionalPanel(condition = "input.ByStressors == true",
                          card(card_header("Stressors"), checkboxGroupInput("checkStressors", NULL, choices = Stressors))),
-        card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = unique(PBFs$Species_full)))
+        card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = unique(PBFs$Species)))
       ),
       card(full_screen = TRUE, uiOutput("main_tabs"))
     )
@@ -117,7 +117,7 @@ server <- function(input, output, session) {
   base_filtered_data <- reactive({
     spp_selection <- if(input$preview == 0) input$checkSpecies_init else input$checkSpecies
     if (is.null(spp_selection)) return(PBFs[0, ]) 
-    PBFs[PBFs$Species_full %in% spp_selection, ]
+    PBFs[PBFs$Species %in% spp_selection, ]
   })
   
   observeEvent(input$preview, {
@@ -142,7 +142,7 @@ server <- function(input, output, session) {
     col <- target_pbf_col()
     df <- base_filtered_data()
     req(st %in% colnames(df), col %in% colnames(df))
-    df[df[[st]] == 1 & !is.na(df[[st]]), c("Species_full", "PBF_category", col)]
+    df[df[[st]] == 1 & !is.na(df[[st]]), c("Species", "PBF_category", col)]
   }
   
   generate_other_pbfs_data <- function() {
@@ -150,10 +150,10 @@ server <- function(input, output, session) {
     df <- base_filtered_data()
     req(col %in% colnames(df))
     st_sel <- if(input$preview == 0) input$checkStressors_init else input$checkStressors
-    if (is.null(st_sel) || length(st_sel) == 0) return(df[, c("Species_full", "PBF_category", col)])
+    if (is.null(st_sel) || length(st_sel) == 0) return(df[, c("Species", "PBF_category", col)])
     sel_cols <- df[, st_sel, drop = FALSE]
     sel_cols[is.na(sel_cols)] <- 0
-    df[rowSums(sel_cols == 1) == 0, c("Species_full", "PBF_category", col)]
+    df[rowSums(sel_cols == 1) == 0, c("Species", "PBF_category", col)]
   }
   
   output$main_tabs <- renderUI({
@@ -179,7 +179,7 @@ server <- function(input, output, session) {
   output$PBFtable_BySpecies <- render_my_datatable(function() {
     col <- target_pbf_col()
     df <- base_filtered_data()
-    df[, c("Species_full", "PBF_category", col)]
+    df[, c("Species", "PBF_category", col)]
   })
   
   # [Download handlers remain the same...]
@@ -188,7 +188,7 @@ server <- function(input, output, session) {
     content = function(file) {
       out <- list()
       col <- target_pbf_col()
-      if (input$BySpecies) out[["Combined"]] <- base_filtered_data()[, c("Species_full","PBF_category", col)]
+      if (input$BySpecies) out[["Combined"]] <- base_filtered_data()[, c("Species","PBF_category", col)]
       if (input$ByStressors && !is.null(input$checkStressors)) {
         for (st in input$checkStressors) out[[substr(st, 1, 31)]] <- generate_stressor_data(st)
       }
@@ -202,7 +202,7 @@ server <- function(input, output, session) {
     content = function(file) {
       final_list <- list()
       col <- target_pbf_col()
-      if(input$BySpecies) final_list[["Species Summary"]] <- base_filtered_data()[, c("Species_full", "PBF_category", col)]
+      if(input$BySpecies) final_list[["Species Summary"]] <- base_filtered_data()[, c("Species", "PBF_category", col)]
       if (input$ByStressors && !is.null(input$checkStressors)) {
         for (st in input$checkStressors) final_list[[st]] <- generate_stressor_data(st)
       }
