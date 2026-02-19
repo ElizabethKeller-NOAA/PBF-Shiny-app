@@ -10,7 +10,7 @@ library(DT)
 library(flextable)
 
 # 0. Load and Wrangle Data
-PBFs <- read.csv("data/All PBFs - Stressor Categories.csv") 
+PBFs <- read.csv("data/All PBFs - Working Copy.csv") 
 
 PBFs$Species <- ifelse(
   is.na(PBFs$ESU_DPS) | PBFs$ESU_DPS == "",
@@ -18,7 +18,7 @@ PBFs$Species <- ifelse(
   paste0(PBFs$Species_Name, " – ", PBFs$ESU_DPS)
 )
 PBFs <- PBFs[order(PBFs$Species_Name), ]
-Stressors <- as.character(colnames(PBFs)[6:(length(PBFs)-1)])
+Stressors <- as.character(colnames(PBFs)[12:(length(PBFs)-1)])
 
 # UI Definition ---
 ui <- page_fillable(
