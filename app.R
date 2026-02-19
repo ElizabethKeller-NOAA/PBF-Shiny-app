@@ -25,51 +25,35 @@ Habitat_Types <- c("Freshwater", "Estuarine", "Marine", "Land")
 ui <- page_fillable(
   tags$head(
     tags$style(HTML("
-      /* CSS for INITIAL UI only */
       [data-display-if='input.preview == 0'] .selection-card { height: 600px !important; }
-      
-      /* CSS for ACTIVE UI only */
       [data-display-if='input.preview > 0'] .card { height: 100% !important; }
-      
-      /* Fix for wrapping and flex alignment */
       .shiny-input-checkboxgroup .checkbox label { display: flex !important; align-items: flex-start; }
       .shiny-input-checkboxgroup .checkbox label span { white-space: normal !important; margin-left: 10px; }
-      
-      /* Style for the select all link in the Species card */
       .bulk-action-link { font-size: 0.8rem; text-decoration: none; cursor: pointer; color: #007bff; margin-bottom: 5px; display: block; }
     "))
   ),
   
-  # =========================================================
-  # 1. INITIAL STATE
-  # =========================================================
   conditionalPanel(
     condition = "input.preview == 0",
     layout_columns(
       col_widths = c(5, 4, 3), 
-      
-      # CARD 1: Table Organization
       card(
         card_header("1. Table Organization"),
         checkboxInput("BySpecies", "Create a table of all PBFs by Species", TRUE),
         checkboxInput("ByStressors", "Create individual tables per Stressor/Category", FALSE),
         checkboxInput("ByOthers", "Include Table of PBFs outside selected Stressors", FALSE)
       ),
-      
-      # CARD 2: Habitat Areas
       card(
         card_header("2. Habitat Areas"),
         checkboxGroupInput("checkHabitats_init", label = NULL, 
                            choices = Habitat_Types, selected = Habitat_Types)
       ),
-      
-      # STACKED COLUMN: Detail and Preview
       layout_columns(
         col_widths = 12,
         card(
           card_header("3. PBF Text Detail"),
           radioButtons("pbf_length_init", NULL,
-                       choices = list("Full Designation Text" = "PBF", "Summary PBFs" = "Shorter_PBFs"),
+                       choices = list("Full Designation Text" = "PBF", "Summary PBFs" = "Shorter_PBF"),
                        selected = "PBF")
         ),
         card(
@@ -78,7 +62,6 @@ ui <- page_fillable(
         )
       )
     ),
-    
     layout_columns(
       col_widths = c(6, 6),
       card(
@@ -98,9 +81,6 @@ ui <- page_fillable(
     )
   ),
   
-  # =========================================================
-  # 2. ACTIVE STATE
-  # =========================================================
   conditionalPanel(
     condition = "input.preview > 0",
     layout_sidebar(
@@ -113,7 +93,7 @@ ui <- page_fillable(
         card(card_header("Habitat Areas"),
              checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
         card(card_header("Text Detail"),
-             radioButtons("pbf_length", NULL, choices = list("Full" = "PBF", "Summary" = "Shorter_PBFs"), selected = "PBF")),
+             radioButtons("pbf_length", NULL, choices = list("Full" = "PBF", "Summary" = "Shorter_PBF"), selected = "PBF")),
         conditionalPanel(condition = "input.ByStressors == true",
                          card(card_header("Stressors"), checkboxGroupInput("checkStressors", NULL, choices = Stressors))),
         card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = unique(PBFs$Species)))
@@ -126,7 +106,6 @@ ui <- page_fillable(
 # Server Logic ----
 server <- function(input, output, session) { 
   
-  # Bulk Selection for Species
   observeEvent(input$all_spp, {
     updateCheckboxGroupInput(session, "checkSpecies_init", selected = unique(PBFs$Species))
   })
@@ -140,17 +119,24 @@ server <- function(input, output, session) {
   base_filtered_data <- reactive({
     spp_selection <- if(input$preview == 0) input$checkSpecies_init else input$checkSpecies
     hab_selection <- if(input$preview == 0) input$checkHabitats_init else input$checkHabitats
+    col <- target_pbf_col()
     
     if (is.null(spp_selection)) return(PBFs[0, ]) 
     
     df <- PBFs[PBFs$Species %in% spp_selection, ]
     
+    # 1. Filter by Habitat Types (OR logic)
     if (!is.null(hab_selection) && length(hab_selection) > 0) {
       habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
       df <- df[habitat_logical, ]
     } else {
       return(df[0, ])
     }
+    
+    # 2. NEW: Filter out rows where the selected PBF text column is empty or NA
+    # trimws handles cases where the cell might just have a space in it
+    df <- df[!is.na(df[[col]]) & trimws(df[[col]]) != "", ]
+    
     return(df)
   })
   
@@ -215,7 +201,6 @@ server <- function(input, output, session) {
     df[, c("Species", "PBF_category", col)]
   })
   
-  # [Download handlers]
   output$downloadxlsx_sidebar <- downloadHandler(
     filename = function() { paste0("PBF_Tables_", Sys.Date(), ".xlsx") },
     content = function(file) {
