@@ -72,15 +72,13 @@ ui <- page_fillable(
     ),
     layout_columns(
       col_widths = c(6, 6),
+      # FIXED: Consolidated scrollbars and added padding to fix the cutoff
       card(
         class = "selection-card", 
+        style = "overflow-y: auto; padding-top: 10px;", 
         card_header("Choose Critical Habitats"),
         actionLink("all_spp", "Select All Visible", class = "bulk-action-link"),
-        tags$div(
-          style = "overflow-y: auto; height: 100%;",
-          checkboxGroupInput("checkSpecies_init", label = NULL, 
-                             choices = Global_Species_List)
-        )
+        checkboxGroupInput("checkSpecies_init", label = NULL, choices = Global_Species_List)
       ),
       uiOutput("stressors_init_ui")
     )
