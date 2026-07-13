@@ -61,7 +61,11 @@ ui <- page_fillable(
         checkboxGroupInput("checkHabitats_init", label = NULL, 
                            choices = Habitat_Types, selected = Habitat_Types)
       ),
-      uiOutput("basins_init_ui"),
+      # FIXED: Moved directly into the static UI to eliminate the infinite loop
+      card(
+        card_header("Basins/Oceans"),
+        checkboxGroupInput("checkBasins_init", label = NULL, choices = Unique_Basins)
+      ),
       layout_columns(
         col_widths = 12,
         card(
@@ -72,7 +76,6 @@ ui <- page_fillable(
     ),
     layout_columns(
       col_widths = c(6, 6),
-      # FIXED: Consolidated scrollbars and added padding to fix the cutoff
       card(
         class = "selection-card", 
         style = "overflow-y: auto; padding-top: 10px;", 
@@ -95,7 +98,9 @@ ui <- page_fillable(
              downloadButton("downloaddocx_sidebar", "DOCX", class = "btn-outline-secondary w-100")),
         card(card_header("Habitat Areas"),
              checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
-        card(card_header("Basins/Oceans"), uiOutput("basins_sidebar_ui")),
+        # FIXED: Moved directly into the static UI sidebar container
+        card(card_header("Basins/Oceans"), 
+             checkboxGroupInput("checkBasins_sidebar", label = NULL, choices = Unique_Basins)),
         conditionalPanel(condition = "input.ByStressors == true",
                          card(card_header("Stressors"), checkboxGroupInput("checkStressors", NULL, choices = Stressors))),
         card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = Global_Species_List))
@@ -237,28 +242,7 @@ server <- function(input, output, session) {
     return(df)
   })
   
-  # --- UI Components ---
-  output$basins_init_ui <- renderUI({
-    card(
-      card_header("Basins/Oceans"),
-      checkboxGroupInput(
-        inputId = "checkBasins_init",
-        label = NULL,
-        choices = Unique_Basins,
-        selected = input$checkBasins_init
-      )
-    )
-  })
-  
-  output$basins_sidebar_ui <- renderUI({
-    checkboxGroupInput(
-      inputId = "checkBasins_sidebar",
-      label = NULL,
-      choices = Unique_Basins,
-      selected = input$checkBasins_sidebar
-    )
-  })
-  
+  # Render the scrolling checkbox blocks with category headers
   output$stressors_init_ui <- renderUI({
     req(input$ByStressors)
     unique_cats <- unique(ui_values$Category)
