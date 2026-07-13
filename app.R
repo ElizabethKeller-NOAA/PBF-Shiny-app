@@ -10,7 +10,7 @@ library(DT)
 library(flextable)
 
 # 0. Load and Wrangle Data
-PBFs <- read.csv("data/All PBFs - Working Copy.csv")
+PBFs <- read.csv("data/All PBFs - Working Copy.csv") 
 
 # Load the stressor/category UI lookup file
 ui_values <- read.csv("data/All PBFs - UI values.csv")
@@ -32,6 +32,7 @@ PBFs$Species <- ifelse(
 PBFs <- PBFs[order(PBFs$Species), ]
 
 Habitat_Types <- c("Freshwater", "Estuarine", "Marine", "Land")
+Global_Species_List <- unique(PBFs$Species)
 
 # UI Definition ---
 ui <- page_fillable(
@@ -71,7 +72,16 @@ ui <- page_fillable(
     ),
     layout_columns(
       col_widths = c(6, 6),
-      uiOutput("species_init_ui"),
+      card(
+        class = "selection-card", 
+        card_header("Choose Critical Habitats"),
+        actionLink("all_spp", "Select All Visible", class = "bulk-action-link"),
+        tags$div(
+          style = "overflow-y: auto; height: 100%;",
+          checkboxGroupInput("checkSpecies_init", label = NULL, 
+                             choices = Global_Species_List)
+        )
+      ),
       uiOutput("stressors_init_ui")
     )
   ),
@@ -87,10 +97,10 @@ ui <- page_fillable(
              downloadButton("downloaddocx_sidebar", "DOCX", class = "btn-outline-secondary w-100")),
         card(card_header("Habitat Areas"),
              checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
-        card(card_header("Basins/Oceans"), checkboxGroupInput("checkBasins_sidebar", label = NULL, choices = Unique_Basins)),
+        card(card_header("Basins/Oceans"), uiOutput("basins_sidebar_ui")),
         conditionalPanel(condition = "input.ByStressors == true",
                          card(card_header("Stressors"), checkboxGroupInput("checkStressors", NULL, choices = Stressors))),
-        card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = unique(PBFs$Species)))
+        card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = Global_Species_List))
       ),
       card(full_screen = TRUE, uiOutput("main_tabs"))
     )
@@ -100,8 +110,6 @@ ui <- page_fillable(
 # Server Logic ----
 server <- function(input, output, session) { 
   
-  # ANCHOR: This storage locker cleanly holds selection values chosen on Page 1 
-  # to break up feedback loops across pages completely.
   locked_selections <- reactiveValues(
     species = NULL,
     habitats = NULL,
@@ -109,7 +117,7 @@ server <- function(input, output, session) {
     stressors = NULL
   )
   
-  # Aggregator: Gathers Stressors chosen on Page 1
+  # Aggregator: Gathering Stressors
   current_checked_stressors <- reactive({
     unique_cats <- unique(ui_values$Category)
     chunk_ids <- paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", unique_cats))
@@ -117,29 +125,28 @@ server <- function(input, output, session) {
     return(unlist(checked_list))
   })
   
-  # Bulk action to Select All visible species inside the reactive card
-  observeEvent(input$all_spp, {
-    updateCheckboxGroupInput(session, "checkSpecies_init", selected = available_species())
+  # Aggregator: Gathering Basins
+  current_checked_basins <- reactive({
+    if (input$preview == 0) input$checkBasins_init else input$checkBasins_sidebar
   })
   
-  target_pbf_col <- reactive({
-    "PBF"
-  })
-  
-  # Dynamic Helper: Computes which species match active metadata filters before clicking Preview
-  available_species <- reactive({
+  # ONE-WAY COMPUTE FUNCTION: Re-evaluates target elements ONLY when top filters update
+  observeEvent({
+    input$checkHabitats_init
+    input$checkBasins_init
+  }, {
     df <- PBFs
     
-    # 1. Filter choices by Habitat Areas (OR logic)
+    # 1. Filter by Habitat Areas
     hab_selection <- input$checkHabitats_init
     if (!is.null(hab_selection) && length(hab_selection) > 0) {
       habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
       df <- df[habitat_logical, ]
     } else {
-      return(character(0))
+      df <- df[0, ]
     }
     
-    # 2. Filter choices by Basins (OR logic via comma-separated string searching with word boundaries)
+    # 2. Filter by Basins/Oceans
     basin_sel <- input$checkBasins_init
     if (!is.null(basin_sel) && length(basin_sel) > 0) {
       basin_match <- sapply(df$basin_ocean, function(row_val) {
@@ -149,46 +156,61 @@ server <- function(input, output, session) {
       df <- df[basin_match, ]
     }
     
-    # 3. Strip out hardcoded exclusion criteria rows globally
+    # 3. Strip exclusion criteria rows globally
     df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
     
-    return(unique(df$Species))
-  })
-  
-  # --- Dynamic UI: Renders the Critical Habitat selection based on Basin filters
-  output$species_init_ui <- renderUI({
-    choices_list <- available_species()
+    updated_choices <- unique(df$Species)
     
-    card(
-      class = "selection-card", 
-      card_header("Choose Critical Habitats"),
-      actionLink("all_spp", "Select All Visible", class = "bulk-action-link"),
-      tags$div(
-        style = "overflow-y: auto; height: 100%;",
-        checkboxGroupInput("checkSpecies_init", label = NULL, 
-                           choices = choices_list, 
-                           selected = input$checkSpecies_init)
-      )
+    # Retain already selected checkmarks if they remain valid under the new basin/habitat bounds
+    still_checked <- intersect(input$checkSpecies_init, updated_choices)
+    
+    updateCheckboxGroupInput(
+      session, 
+      "checkSpecies_init", 
+      choices = updated_choices, 
+      selected = still_checked
     )
+  }, ignoreInit = FALSE)
+  
+  # Bulk action to Select All visible species inside the card
+  observeEvent(input$all_spp, {
+    df <- PBFs
+    hab_selection <- input$checkHabitats_init
+    if (!is.null(hab_selection) && length(hab_selection) > 0) {
+      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
+      df <- df[habitat_logical, ]
+    } else { df <- df[0, ] }
+    
+    basin_sel <- input$checkBasins_init
+    if (!is.null(basin_sel) && length(basin_sel) > 0) {
+      basin_match <- sapply(df$basin_ocean, function(row_val) {
+        if (is.na(row_val) || row_val == "") return(FALSE)
+        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
+      })
+      df <- df[basin_match, ]
+    }
+    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
+    
+    updateCheckboxGroupInput(session, "checkSpecies_init", selected = unique(df$Species))
   })
   
-  # LOCK IN TRANSITION SNAPS: Captures state cleanly only when button is pressed
+  target_pbf_col <- reactive({ "PBF" })
+  
+  # Lock in snapshots when preview is pressed
   observeEvent(input$preview, {
     locked_selections$species <- input$checkSpecies_init
     locked_selections$habitats <- input$checkHabitats_init
     locked_selections$basins <- input$checkBasins_init
     locked_selections$stressors <- current_checked_stressors()
     
-    # Push starting states cleanly to sidebar targets without binding updaters backwards
-    updateCheckboxGroupInput(session, "checkSpecies", selected = locked_selections$species, choices = unique(PBFs$Species))
+    updateCheckboxGroupInput(session, "checkSpecies", selected = locked_selections$species, choices = Global_Species_List)
     updateCheckboxGroupInput(session, "checkHabitats", selected = locked_selections$habitats)
     updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = locked_selections$basins)
     updateCheckboxGroupInput(session, "checkStressors", selected = locked_selections$stressors)
   }, ignoreInit = TRUE)
   
-  # Base Dataset Engine (Handles what populates final data views)
+  # Base Dataset Engine
   base_filtered_data <- reactive({
-    # Decide cleanly whether we evaluate the frozen snapshot state or active post-preview sidebar shifts
     spp_selection <- if(input$preview == 0) locked_selections$species else input$checkSpecies
     hab_selection <- if(input$preview == 0) locked_selections$habitats else input$checkHabitats
     basin_sel <- if(input$preview == 0) locked_selections$basins else input$checkBasins_sidebar
@@ -198,15 +220,11 @@ server <- function(input, output, session) {
     
     df <- PBFs[PBFs$Species %in% spp_selection, ]
     
-    # 1. Filter by Habitat Types (OR logic)
     if (!is.null(hab_selection) && length(hab_selection) > 0) {
       habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
       df <- df[habitat_logical, ]
-    } else {
-      return(df[0, ])
-    }
+    } else { return(df[0, ]) }
     
-    # 2. Filter by Basins & Oceans via partial word matches
     if (!is.null(basin_sel) && length(basin_sel) > 0) {
       basin_match <- sapply(df$basin_ocean, function(row_val) {
         if (is.na(row_val) || row_val == "") return(FALSE)
@@ -215,16 +233,13 @@ server <- function(input, output, session) {
       df <- df[basin_match, ]
     }
     
-    # 3. Clean empty text rows
     df <- df[!is.na(df[[col]]) & trimws(df[[col]]) != "", ]
-    
-    # 4. Drop Designated exclusions
     df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
     
     return(df)
   })
   
-  # --- UI Builders ---
+  # --- UI Components ---
   output$basins_init_ui <- renderUI({
     card(
       card_header("Basins/Oceans"),
@@ -234,6 +249,15 @@ server <- function(input, output, session) {
         choices = Unique_Basins,
         selected = input$checkBasins_init
       )
+    )
+  })
+  
+  output$basins_sidebar_ui <- renderUI({
+    checkboxGroupInput(
+      inputId = "checkBasins_sidebar",
+      label = NULL,
+      choices = Unique_Basins,
+      selected = input$checkBasins_sidebar
     )
   })
   
@@ -275,7 +299,13 @@ server <- function(input, output, session) {
       req(col %in% colnames(df))
       df
     }, server = TRUE, rownames = FALSE, 
-    options = list(pageLength = -1, dom = 't', scrollY = "75vh", scrollCollapse = TRUE))
+    options = list(
+      pageLength = -1, 
+      dom = 't', 
+      scrollY = "75vh", 
+      scrollCollapse = TRUE,
+      order = list(list(0, 'asc'), list(1, 'asc'))
+    ))
   }
   
   generate_stressor_data <- function(st) {
