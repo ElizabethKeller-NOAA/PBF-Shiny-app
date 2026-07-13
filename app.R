@@ -12,13 +12,24 @@ library(flextable)
 # 0. Load and Wrangle Data
 PBFs <- read.csv("data/All PBFs - Working Copy.csv") 
 
+# Load the stressor/category UI lookup file
+ui_values <- read.csv("data/All PBFs - UI values.csv")
+# Extract stressor columns safely from the lookup sheet
+# Handle grouping names nicely
+ui_values$Category <- ifelse(is.na(ui_values$Category) | trimws(ui_values$Category) == "", 
+                             "General Parameters", 
+                             trimws(ui_values$Category))
+# Keep ui_df as a dataframe for our loop, but we still need a global vector 
+# of all raw column names so your server's download/filtering logic doesn't break:
+Stressors <- as.character(ui_values$Data_sheet_values)
+
 PBFs$Species <- ifelse(
   is.na(PBFs$ESU_DPS) | PBFs$ESU_DPS == "",
   PBFs$Species_Name,
   paste0(PBFs$Species_Name, " – ", PBFs$ESU_DPS)
 )
 PBFs <- PBFs[order(PBFs$Species), ]
-Stressors <- as.character(colnames(PBFs)[12:(length(PBFs)-1)])
+
 Habitat_Types <- c("Freshwater", "Estuarine", "Marine", "Land")
 
 # UI Definition ---
@@ -70,14 +81,8 @@ ui <- page_fillable(
         actionLink("all_spp", "Select All", class = "bulk-action-link"),
         checkboxGroupInput("checkSpecies_init", label = NULL, choices = unique(PBFs$Species))
       ),
-      conditionalPanel(
-        condition = "input.ByStressors == true",
-        card(
-          class = "selection-card", 
-          card_header("Select Stressors/Categories"),
-          checkboxGroupInput("checkStressors_init", label = NULL, choices = Stressors)
-        )
-      )
+      # Clean structural injection area
+      uiOutput("stressors_init_ui")
     )
   ),
   
@@ -106,6 +111,19 @@ ui <- page_fillable(
 # Server Logic ----
 server <- function(input, output, session) { 
   
+  # Dynamically gather inputs from all stressor category chunks back into a single vector
+  current_checked_stressors <- reactive({
+    if (input$preview == 0) {
+      unique_cats <- unique(ui_values$Category)
+      chunk_ids <- paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", unique_cats))
+      
+      checked_list <- lapply(chunk_ids, function(id) input[[id]])
+      return(unlist(checked_list))
+    } else {
+      return(input$checkStressors)
+    }
+  })
+  
   observeEvent(input$all_spp, {
     updateCheckboxGroupInput(session, "checkSpecies_init", selected = unique(PBFs$Species))
   })
@@ -118,6 +136,7 @@ server <- function(input, output, session) {
   
   base_filtered_data <- reactive({
     spp_selection <- if(input$preview == 0) input$checkSpecies_init else input$checkSpecies
+    st_sel <- current_checked_stressors()
     hab_selection <- if(input$preview == 0) input$checkHabitats_init else input$checkHabitats
     col <- target_pbf_col()
     
@@ -125,7 +144,7 @@ server <- function(input, output, session) {
     
     df <- PBFs[PBFs$Species %in% spp_selection, ]
     
-    # 1. Filter by Habitat Types (OR logic)
+    # Filter by Habitat Types (OR logic)
     if (!is.null(hab_selection) && length(hab_selection) > 0) {
       habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
       df <- df[habitat_logical, ]
@@ -133,16 +152,51 @@ server <- function(input, output, session) {
       return(df[0, ])
     }
     
-    # 2. NEW: Filter out rows where the selected PBF text column is empty or NA
-    # trimws handles cases where the cell might just have a space in it
+    # Filter out rows where the selected PBF text column is empty or NA
     df <- df[!is.na(df[[col]]) & trimws(df[[col]]) != "", ]
     
     return(df)
   })
   
+  # Render the scrolling checkbox blocks with category headers
+  output$stressors_init_ui <- renderUI({
+    req(input$ByStressors)
+    
+    unique_cats <- unique(ui_values$Category)
+    
+    checkbox_blocks <- lapply(unique_cats, function(cat_name) {
+      sub_df <- ui_values[ui_values$Category == cat_name, ]
+      
+      # Pair Display Labels (UI_values) with Data Columns (Data_sheet_values)
+      chunk_choices <- setNames(as.character(sub_df$Data_sheet_values), 
+                                as.character(sub_df$UI_values))
+      
+      tagList(
+        tags$div(
+          style = "margin-top: 15px; margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid #e9ecef; color: #495057;",
+          cat_name
+        ),
+        checkboxGroupInput(
+          inputId = paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", cat_name)), 
+          label = NULL, 
+          choices = chunk_choices,
+          selected = input$checkStressors
+        )
+      )
+    })
+    
+    card(
+      class = "selection-card", 
+      style = "overflow-y: auto;",
+      card_header("Select Stressors/Categories"),
+      do.call(tagList, checkbox_blocks)
+    )
+  })
+  
+  # Handle preview transitions for everything else cleanly
   observeEvent(input$preview, {
     updateCheckboxGroupInput(session, "checkSpecies", selected = input$checkSpecies_init)
-    updateCheckboxGroupInput(session, "checkStressors", selected = input$checkStressors_init)
+    updateCheckboxGroupInput(session, "checkStressors", selected = current_checked_stressors())
     updateCheckboxGroupInput(session, "checkHabitats", selected = input$checkHabitats_init)
     updateRadioButtons(session, "pbf_length", selected = input$pbf_length_init)
   }, ignoreInit = TRUE)
@@ -168,7 +222,7 @@ server <- function(input, output, session) {
     col <- target_pbf_col()
     df <- base_filtered_data()
     req(col %in% colnames(df))
-    st_sel <- if(input$preview == 0) input$checkStressors_init else input$checkStressors
+    st_sel <- current_checked_stressors()
     if (is.null(st_sel) || length(st_sel) == 0) return(df[, c("Species", "PBF_category", col)])
     sel_cols <- df[, st_sel, drop = FALSE]
     sel_cols[is.na(sel_cols)] <- 0
