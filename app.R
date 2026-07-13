@@ -132,9 +132,10 @@ server <- function(input, output, session) {
     
     if (is.null(spp_selection)) return(PBFs[0, ]) 
     
+    # Fixed typo here
     df <- PBFs[PBFs$Species %in% spp_selection, ]
     
-    # Filter by Habitat Types (OR logic)
+    # 1. Filter by Habitat Types (OR logic)
     if (!is.null(hab_selection) && length(hab_selection) > 0) {
       habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
       df <- df[habitat_logical, ]
@@ -142,8 +143,11 @@ server <- function(input, output, session) {
       return(df[0, ])
     }
     
-    # Filter out rows where the selected PBF text column is empty or NA
+    # 2. Filter out rows where the selected PBF text column is empty or NA
     df <- df[!is.na(df[[col]]) & trimws(df[[col]]) != "", ]
+    
+    # 3. Filter out rows where Area_Designated_Yes_No is explicitly 0
+    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
     
     return(df)
   })
