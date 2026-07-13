@@ -62,13 +62,7 @@ ui <- page_fillable(
       layout_columns(
         col_widths = 12,
         card(
-          card_header("3. PBF Text Detail"),
-          radioButtons("pbf_length_init", NULL,
-                       choices = list("Full Designation Text" = "PBF", "Summary PBFs" = "Shorter_PBF"),
-                       selected = "PBF")
-        ),
-        card(
-          card_header("4. Preview"),
+          card_header("3. Preview"),
           actionButton("preview", "View Table(s) Now", class = "btn-primary w-100 h-100", style = "font-size: 1.1rem;")
         )
       )
@@ -81,7 +75,6 @@ ui <- page_fillable(
         actionLink("all_spp", "Select All", class = "bulk-action-link"),
         checkboxGroupInput("checkSpecies_init", label = NULL, choices = unique(PBFs$Species))
       ),
-      # Clean structural injection area
       uiOutput("stressors_init_ui")
     )
   ),
@@ -97,8 +90,6 @@ ui <- page_fillable(
              downloadButton("downloaddocx_sidebar", "DOCX", class = "btn-outline-secondary w-100")),
         card(card_header("Habitat Areas"),
              checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
-        card(card_header("Text Detail"),
-             radioButtons("pbf_length", NULL, choices = list("Full" = "PBF", "Summary" = "Shorter_PBF"), selected = "PBF")),
         conditionalPanel(condition = "input.ByStressors == true",
                          card(card_header("Stressors"), checkboxGroupInput("checkStressors", NULL, choices = Stressors))),
         card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = unique(PBFs$Species)))
@@ -128,10 +119,9 @@ server <- function(input, output, session) {
     updateCheckboxGroupInput(session, "checkSpecies_init", selected = unique(PBFs$Species))
   })
   
+  # Hardcoded to always return full designation text ("PBF")
   target_pbf_col <- reactive({
-    val <- if(input$preview == 0) input$pbf_length_init else input$pbf_length
-    req(val)
-    val
+    "PBF"
   })
   
   base_filtered_data <- reactive({
@@ -193,12 +183,11 @@ server <- function(input, output, session) {
     )
   })
   
-  # Handle preview transitions for everything else cleanly
+  # Handle preview transitions cleanly
   observeEvent(input$preview, {
     updateCheckboxGroupInput(session, "checkSpecies", selected = input$checkSpecies_init)
     updateCheckboxGroupInput(session, "checkStressors", selected = current_checked_stressors())
     updateCheckboxGroupInput(session, "checkHabitats", selected = input$checkHabitats_init)
-    updateRadioButtons(session, "pbf_length", selected = input$pbf_length_init)
   }, ignoreInit = TRUE)
   
   render_my_datatable <- function(data_func) {
