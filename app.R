@@ -49,20 +49,20 @@ ui <- page_fillable(
     layout_columns(
       col_widths = c(5, 4, 3), 
       card(
-        card_header("1. Table Organization"),
+        card_header("Table Organization"),
         checkboxInput("BySpecies", "Create a table of all PBFs by Species", TRUE),
         checkboxInput("ByStressors", "Create individual tables per Stressor/Category", FALSE),
         checkboxInput("ByOthers", "Include Table of PBFs outside selected Stressors", FALSE)
       ),
       card(
-        card_header("2. Habitat Areas"),
+        card_header("Habitat Areas"),
         checkboxGroupInput("checkHabitats_init", label = NULL, 
                            choices = Habitat_Types, selected = Habitat_Types)
       ),
       layout_columns(
         col_widths = 12,
         card(
-          card_header("3. Preview"),
+          card_header("Preview"),
           actionButton("preview", "View Table(s) Now", class = "btn-primary w-100 h-100", style = "font-size: 1.1rem;")
         )
       )
