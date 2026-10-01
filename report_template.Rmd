@@ -18,30 +18,71 @@ library(knitr)
 # Identify the target column passed from Shiny
 target_col <- params$pbf_column
 
+# --- HELPER FUNCTION: GROUP & SORT SPECIES NAMES ---
+# Groups ESUs/DPSs under their common base species name and formats them cleanly
+format_species_group <- function(spp_vector) {
+  spp_clean <- sort(unique(spp_vector))
+  
+  # Extract base species name and ESU/DPS portion (handles -, –, or —)
+  base_names <- sub("^([^–—-]+)\\s*[–—-]\\s*(.*)$", "\\1", spp_clean)
+  esu_dps    <- ifelse(grepl("[–—-]", spp_clean),
+                       sub("^([^–—-]+)\\s*[–—-]\\s*(.*)$", "\\2", spp_clean),
+                       "")
+  
+  df_spp <- data.frame(
+    base = trimws(base_names),
+    esu  = trimws(esu_dps),
+    stringsAsFactors = FALSE
+  )
+  
+  res <- df_spp %>%
+    group_by(base) %>%
+    summarise(
+      formatted = case_when(
+        all(esu == "") ~ first(base),
+        n() == 1      ~ paste0(first(base), " \u2013 ", first(esu)),
+        TRUE          ~ paste0(first(base), " \u2013 ", paste(esu[esu != ""], collapse = ", "))
+      ),
+      .groups = "drop"
+    ) %>%
+    arrange(base)
+  
+  paste(res$formatted, collapse = "\n")
+}
+
 # --- 1. THE SPECIES SUMMARY FORMAT ---
 render_species_summary <- function(df) {
   df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(Species, PBF_category) %>%
     summarise(
-      # Uses .data[[target_col]] to dynamically pick the PBF or Shorter_PBFs column
-      pbf_list = paste0("  • ", unique(.data[[target_col]]), collapse = "\n"),
+      # Uses \u2022 for bullet points to prevent copy/paste encoding errors
+      pbf_list = paste0("  \u2022 ", unique(.data[[target_col]]), collapse = "\n"),
       .groups = "drop"
     ) %>%
-    mutate(category_block = if_else(PBF_category == "", 
-                                    pbf_list, 
-                                    paste0(PBF_category, ":\n", pbf_list))) %>%
+    mutate(category_block = if_else(PBF_category == "",
+                                   pbf_list,
+                                   paste0(PBF_category, ":\n", pbf_list))) %>%
+    # Step 1: Combine PBFs into a single formatted block per species
     group_by(Species) %>%
     summarise(
-      'Species (ESU/DPS)' = first(Species),
-      'Physical and Biological Features' = paste(category_block, collapse = "\n\n"),
+      pbf_text = paste(category_block, collapse = "\n\n"),
       .groups = "drop"
     ) %>%
-    select(-Species) %>%
+    # Step 2: Group species that share identical PBF text blocks and format names
+    group_by(pbf_text) %>%
+    summarise(
+      'Species (ESU/DPS)' = format_species_group(Species),
+      .groups = "drop"
+    ) %>%
+    # Step 3: Sort rows alphabetically by species name
+    arrange(`Species (ESU/DPS)`) %>%
+    rename('Physical and Biological Features' = pbf_text) %>%
+    select('Species (ESU/DPS)', 'Physical and Biological Features') %>%
     flextable() %>%
     theme_vanilla() %>%
-    width(j = 1, width = 1.5) %>% 
-    width(j = 2, width = 5.0) %>%
+    width(j = 1, width = 2.2) %>%
+    width(j = 2, width = 4.3) %>%
     valign(valign = "top", part = "all") %>%
     border_inner_h(border = fp_border(color="gray80", width = 1))
 }
@@ -55,14 +96,14 @@ format_st_table <- function(df) {
       Species_List = paste0(unique(Species), collapse = "\n"),
       .groups = "drop"
     ) %>%
-    mutate(PBF_Display = if_else(PBF_category == "", 
-                                 .data[[target_col]], 
-                                 paste0(PBF_category, ": ", .data[[target_col]]))) %>%
-    select('Physical and Biological Feature' = PBF_Display, 
+    mutate(PBF_Display = if_else(PBF_category == "",
+                                .data[[target_col]],
+                                paste0(PBF_category, ": ", .data[[target_col]]))) %>%
+    select('Physical and Biological Feature' = PBF_Display,
            'Associated Species' = Species_List) %>%
     flextable() %>%
     theme_vanilla() %>%
-    width(j = 1, width = 3.5) %>% 
+    width(j = 1, width = 3.5) %>%
     width(j = 2, width = 3.0) %>%
     valign(valign = "top", part = "all") %>%
     border_inner_h(border = fp_border(color="gray80", width = 1))
@@ -79,14 +120,12 @@ if(!is.null(params$data_list) && length(params$data_list) >= 1) {
 ```{r loop_render, echo=FALSE, results='asis', message=FALSE}
 # --- 3. DYNAMIC LOOP FOR ALL SELECTED STRESSORS ---
 if(!is.null(params$data_list) && length(params$data_list) >= 2) {
-  
   item_names <- names(params$data_list)
   stressor_indices <- which(item_names != "Outside Selection" & seq_along(item_names) > 1)
   
   for (i in stressor_indices) {
     cat("\n\n\\newpage\n\n")
     cat("# ", item_names[i], "\n\n")
-    
     ft <- format_st_table(params$data_list[[i]])
     cat(knitr::knit_print(ft))
     cat("\n\n")
@@ -97,10 +136,9 @@ if(!is.null(params$data_list) && length(params$data_list) >= 2) {
 ```{r others_render, echo=FALSE, results='asis', message=FALSE}
 # --- 4. FINAL TABLE: OUTSIDE SELECTION ---
 if("Outside Selection" %in% names(params$data_list)) {
-    cat("\n\n\\newpage\n\n")
-    cat("# Outside Selection\n\n")
-    
-    ft_others <- format_st_table(params$data_list[["Outside Selection"]])
-    cat(knitr::knit_print(ft_others))
+  cat("\n\n\\newpage\n\n")
+  cat("# Outside Selection\n\n")
+  ft_others <- format_st_table(params$data_list[["Outside Selection"]])
+  cat(knitr::knit_print(ft_others))
 }
 ```
