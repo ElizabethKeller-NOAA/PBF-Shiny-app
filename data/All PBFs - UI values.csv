@@ -1,24 +1,18 @@
-Data_sheet_values,UI_values,Category
-Riparian,Riparian Disturbance,
-Oceanography,Oceanography,
-Food,Food/Prey/Forage,
-Benthic,Benthic Disturbance,Substrate & Benthic Integrity
-Structure,Structure,
-Noise,Noise/Quiet/Acoustic,
-Contaminants,Contaminants/Pollutants,Water Properties
-Passage,Passage/Movement,
-Cover,Cover,
-Depth,Depth,
-Space,Space,
-Water_Quality,Water Quality,Water Properties
-Temperature,Temperature,Water Properties
-Salinity,Salinity Alteration,Water Properties
-Oxygen,Oxygen/DO Depletion,Water Properties
-Nutrients_Productivity,Nutrients/Productivity,Water Properties
-Turbidity_Sedimentation,Turbidity/Sedimentation,Substrate & Benthic Integrity
-Water_Clarity,Water Clarity,Water Properties
-Water_Flow,Water Flow/Volume,Water Properties
-Water_Velocity,Water Velocity,Water Properties
-Aquatic_Vegetation,Aquatic Vegetation,
-Light,Artificial Light,
-OTHER,Other,
+Data_sheet_values,UI_values,Category,
+Water_Quality_Overall,Water Quality,Water Properties,
+Contaminants_Pollution,Contaminants/Pollutants,Water Properties,
+Temperature_Thermal_Stress,Temperature/Thermal Stress,Water Properties,
+Salinity_Alteration,Salinity Alteration,Water Properties,
+Oxygen_Depletion,Oxygen Depletion,Water Properties,
+Nutrients_Productivity,Nutrients/Productivity,Water Properties,
+Hydrology_Flow_Velocity,Hydrology/Water Flow or Volume,Water Properties,
+Turbidity_Suspended_Sediment,Turbidity/Suspended Sediment,Water Properties,
+Benthic_Disturbance,Benthic Disturbance,Substrate & Benthic Integrity,
+Sedimentation_Siltation,Sedimentation/Siltation,Substrate & Benthic Integrity,
+Prey_Forage_Food,Prey/Forage/Food,,
+Noise_Acoustic_Disturbance,Noise/Acoustic Disturbance,,
+Passage_Migration_Barriers,Passage/Movement/Migration Barriers,,
+Light_Pollution,Light Pollution/Artificial Light,,
+Currents_Oceanography,"Oceanography (Currents, Upwelling, etc.)",,
+Vegetation_Loss,Vegetation Loss,,
+Riparian_Disturbance,Riparian Disturbance,,

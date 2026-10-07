@@ -17,7 +17,7 @@ ui_values <- read.csv("data/All PBFs - UI values.csv")
 ui_values$Category <- ifelse(is.na(ui_values$Category) | trimws(ui_values$Category) == "", 
                              "General Parameters", 
                              trimws(ui_values$Category))
-Stressors <- as.character(ui_values$Data_sheet_values)
+Stressors <- setNames(as.character(ui_values$Data_sheet_values), as.character(ui_values$UI_values))
 
 # Load the Basin lookup file 
 basin_values <- read.csv("data/All PBFs - Basins.csv")
