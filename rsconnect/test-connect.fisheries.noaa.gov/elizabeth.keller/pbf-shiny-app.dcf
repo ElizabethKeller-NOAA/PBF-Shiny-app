@@ -1,0 +1,12 @@
+name: pbf-shiny-app
+title: PBF-Shiny-app
+username: elizabeth.keller
+account: elizabeth.keller
+server: test-connect.fisheries.noaa.gov
+hostUrl: https://test-connect.fisheries.noaa.gov/__api__
+appId: 538
+bundleId: 3989
+url: https://test-connect.fisheries.noaa.gov/content/58e63f1a-d698-4785-9457-36391397c69e/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
