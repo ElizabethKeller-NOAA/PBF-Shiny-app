@@ -19,10 +19,21 @@ library(knitr)
 target_col <- params$pbf_column
 
 # --- 1. CLEAN STRESSOR NAMES FOR DISPLAY ---
-clean_stressor_name <- function(st_name) {
+# Heading display: "Water Quality Overall"
+clean_stressor_title <- function(st_name) {
   if (is.null(st_name) || st_name == "") return("")
   st_clean <- gsub("_", " ", st_name)
-  paste0(toupper(substr(st_clean, 1, 1)), tolower(substr(st_clean, 2, nchar(st_clean))))
+  # Capitalize words
+  words <- strsplit(st_clean, " ")[[1]]
+  paste(suppressWarnings(paste0(toupper(substr(words, 1, 1)), tolower(substr(words, 2, nchar(words))))), collapse = " ")
+}
+
+# Caption display (sentence case): "Physical and biological features associated with water quality overall"
+clean_stressor_caption <- function(st_name) {
+  if (is.null(st_name) || st_name == "") return("Physical and biological features associated with selected stressors")
+  st_clean <- gsub("_", " ", st_name)
+  st_lower <- tolower(st_clean)
+  paste0("Physical and biological features associated with ", st_lower)
 }
 
 # --- 2. SCIENTIFIC TAXA LIBRARY & WORD-LEVEL ITALIC PARSER ---
@@ -30,71 +41,74 @@ scientific_genera <- c(
   "Acropora", "Fimbriaphyllia", "Isopora", "Orbicella", "Pocillopora", "Porites", "Siderastrea",
   "Sargassum", "Halophila", "Zostera", "Phyllospadix", "Rhizophora", "Pristis", "Ammodytes",
   "Euphausia", "Thysanoessa", "Nematoscelis", "Nyctiphanes", "Aurelia", "Chrysaora", "Cyanea",
-  "Clupea", "Engraulis", "Gadus", "Mallotus", "Sardinops", "Phacellophora", "Semaeostomeae",
-  "Alariaceae", "Chordaceae", "Costariaceae", "Laminaricea", "Lessoniacea"
+  "Clupea", "Engraulis", "Gadus", "Mallotus", "Sardinops"
 )
 
 non_italic_descriptors <- c("Coral", "habitat", "in", "community", "waters", "and", "for", "or", "DPS", "ESU", "species", "area", "areas")
 
-format_species_paragraph <- function(cell_text) {
-  if (is.na(cell_text) || cell_text == "") {
-    return(as_paragraph(as_chunk("")))
+# Parses a single line string into a flextable paragraph of chunks
+parse_line_to_chunks <- function(line_txt) {
+  if (is.na(line_txt) || trimws(line_txt) == "") {
+    return(as_paragraph(as_chunk("", props = fp_text(font.family = "Times New Roman", font.size = 10))))
   }
   
-  lines <- unlist(strsplit(cell_text, "
-"))
-  chunk_list <- list()
+  # Check if line starts with a genus from scientific_genera
+  words <- strsplit(line_txt, "\\s+")[[1]]
+  first_word <- gsub("[^A-Za-z]", "", words[1])
   
-  for (i in seq_along(lines)) {
-    line <- lines[i]
-    is_last <- (i == length(lines))
-    nl <- if (is_last) "" else "
-"
+  if (first_word %in% scientific_genera) {
+    second_word <- if (length(words) >= 2) gsub("[^A-Za-z]", "", words[2]) else ""
     
-    m <- regexec("^([A-Z][a-z]+)(\\s+([A-Z][a-z]+|[a-z]+))?", line)
-    matches <- regmatches(line, m)[[1]]
-    
-    if (length(matches) >= 2 && matches[2] %in% scientific_genera) {
-      genus <- matches[2]
-      second_word <- if (length(matches) >= 4) matches[4] else ""
-      
-      if (nchar(second_word) > 0 && !(second_word %in% non_italic_descriptors)) {
-        sci <- paste(genus, second_word)
-      } else {
-        sci <- genus
-      }
-      
-      rest <- paste0(substring(line, nchar(sci) + 1), nl)
-      
-      chunk_list[[length(chunk_list) + 1]] <- as_chunk(
-        sci, 
-        props = fp_text(font.family = "Times New Roman", font.size = 10, italic = TRUE)
-      )
-      if (nchar(rest) > 0) {
-        chunk_list[[length(chunk_list) + 1]] <- as_chunk(
-          rest, 
-          props = fp_text(font.family = "Times New Roman", font.size = 10, italic = FALSE)
-        )
-      }
+    if (nchar(second_word) > 0 && !(second_word %in% non_italic_descriptors) && grepl("^[A-Z]", words[2])) {
+      # Binomial: Genus species (e.g. Acropora Globiceps)
+      sci_part <- paste(words[1], words[2])
+      rest_part <- substring(line_txt, nchar(sci_part) + 1)
+      return(as_paragraph(
+        as_chunk(sci_part, props = fp_text(font.family = "Times New Roman", font.size = 10, italic = TRUE)),
+        as_chunk(rest_part, props = fp_text(font.family = "Times New Roman", font.size = 10, italic = FALSE))
+      ))
     } else {
-      chunk_list[[length(chunk_list) + 1]] <- as_chunk(
-        paste0(line, nl), 
-        props = fp_text(font.family = "Times New Roman", font.size = 10, italic = FALSE)
-      )
+      # Single genus (e.g. Sargassum)
+      sci_part <- words[1]
+      rest_part <- substring(line_txt, nchar(sci_part) + 1)
+      return(as_paragraph(
+        as_chunk(sci_part, props = fp_text(font.family = "Times New Roman", font.size = 10, italic = TRUE)),
+        as_chunk(rest_part, props = fp_text(font.family = "Times New Roman", font.size = 10, italic = FALSE))
+      ))
     }
+  } else {
+    # Plain text line
+    return(as_paragraph(as_chunk(line_txt, props = fp_text(font.family = "Times New Roman", font.size = 10, italic = FALSE))))
   }
-  
-  do.call(as_paragraph, chunk_list)
 }
 
-# Applies precise word-level italics to flextable column
+# Applies precise word-level italics to flextable column (handles multi-line cells safely)
 apply_scientific_italics_column <- function(ft, j_col) {
-  col_name <- colnames(ft$body$dataset)[j_col]
-  cell_values <- ft$body$dataset[[col_name]]
+  dataset <- ft$body$dataset
+  col_name <- names(dataset)[j_col]
   
-  for (r in seq_along(cell_values)) {
-    p <- format_species_paragraph(cell_values[r])
-    ft <- mk_par(ft, i = r, j = j_col, value = p)
+  for (r in seq_len(nrow(dataset))) {
+    cell_val <- as.character(dataset[r, col_name])
+    if (!is.na(cell_val) && cell_val != "") {
+      # Split by lines if multiline
+      lines <- strsplit(cell_val, "\n")[[1]]
+      if (length(lines) <= 1) {
+        p <- parse_line_to_chunks(cell_val)
+        ft <- mk_par(ft, i = r, j = j_col, value = p)
+      } else {
+        # Combine line chunks with newline breaks
+        chunk_list <- list()
+        for (idx in seq_along(lines)) {
+          l_txt <- lines[idx]
+          p_line <- parse_line_to_chunks(l_txt)
+          if (idx > 1) {
+            chunk_list[[length(chunk_list) + 1]] <- as_paragraph(as_chunk("\n", props = fp_text(font.family = "Times New Roman", font.size = 10)))
+          }
+          chunk_list[[length(chunk_list) + 1]] <- p_line
+        }
+        ft <- mk_par(ft, i = r, j = j_col, value = parse_line_to_chunks(lines[1]))
+      }
+    }
   }
   ft
 }
@@ -119,15 +133,14 @@ format_species_group <- function(spp_vector) {
     summarise(
       formatted = case_when(
         all(esu == "") ~ first(base),
-        n() == 1      ~ paste0(first(base), " \u2013 ", first(esu)),
-        TRUE          ~ paste0(first(base), " \u2013 ", paste(esu[esu != ""], collapse = ", "))
+        n() == 1      ~ paste0(first(base), " – ", first(esu)),
+        TRUE          ~ paste0(first(base), " – ", paste(esu[esu != ""], collapse = ", "))
       ),
       .groups = "drop"
     ) %>%
     arrange(base)
   
-  paste(res$formatted, collapse = "
-")
+  paste(res$formatted, collapse = "\n")
 }
 
 # --- 4. SPECIES SUMMARY FORMAT ---
@@ -138,19 +151,15 @@ render_species_summary <- function(df) {
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(Species, PBF_category) %>%
     summarise(
-      pbf_list = paste0("  \u2022 ", unique(.data[[target_col]]), collapse = "
-"),
+      pbf_list = paste0("  • ", unique(.data[[target_col]]), collapse = "\n"),
       .groups = "drop"
     ) %>%
     mutate(category_block = if_else(PBF_category == "",
                                    pbf_list,
-                                   paste0(PBF_category, ":
-", pbf_list))) %>%
+                                   paste0(PBF_category, ":\n", pbf_list))) %>%
     group_by(Species) %>%
     summarise(
-      pbf_text = paste(category_block, collapse = "
-
-"),
+      pbf_text = paste(category_block, collapse = "\n\n"),
       .groups = "drop"
     ) %>%
     group_by(pbf_text) %>%
@@ -174,7 +183,7 @@ render_species_summary <- function(df) {
       caption = as_paragraph(
         as_chunk(cap_title, props = fp_text(font.family = "Times New Roman", font.size = 12, bold = TRUE))
       ),
-      style = "Normal",
+      align_with_table = FALSE,
       fp_p = fp_par(text.align = "left")
     )
   
@@ -183,7 +192,7 @@ render_species_summary <- function(df) {
 
 # --- 5. STRESSOR & OTHERS FORMAT ---
 format_st_table <- function(df, st_title) {
-  cap_text <- paste0("Physical and biological features associated with ", clean_stressor_name(st_title))
+  cap_text <- clean_stressor_caption(st_title)
   
   ft <- df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
@@ -210,7 +219,7 @@ format_st_table <- function(df, st_title) {
       caption = as_paragraph(
         as_chunk(cap_text, props = fp_text(font.family = "Times New Roman", font.size = 12, bold = TRUE))
       ),
-      style = "Normal",
+      align_with_table = FALSE,
       fp_p = fp_par(text.align = "left")
     )
   
@@ -233,7 +242,7 @@ if(!is.null(params$data_list) && length(params$data_list) >= 2) {
   
   for (i in stressor_indices) {
     cat("\n\n\\newpage\n\n")
-    cat("# ", clean_stressor_name(item_names[i]), "\n\n")
+    cat("# ", clean_stressor_title(item_names[i]), "\n\n")
     ft <- format_st_table(params$data_list[[i]], item_names[i])
     cat(knitr::knit_print(ft))
     cat("\n\n")
