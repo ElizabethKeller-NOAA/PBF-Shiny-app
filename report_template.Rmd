@@ -18,11 +18,91 @@ library(knitr)
 # Identify the target column passed from Shiny
 target_col <- params$pbf_column
 
-# --- HELPER FUNCTION: GROUP & SORT SPECIES NAMES ---
+# --- 1. CLEAN STRESSOR NAMES FOR DISPLAY ---
+clean_stressor_name <- function(st_name) {
+  if (is.null(st_name) || st_name == "") return("")
+  st_clean <- gsub("_", " ", st_name)
+  paste0(toupper(substr(st_clean, 1, 1)), tolower(substr(st_clean, 2, nchar(st_clean))))
+}
+
+# --- 2. SCIENTIFIC TAXA LIBRARY & WORD-LEVEL ITALIC PARSER ---
+scientific_genera <- c(
+  "Acropora", "Fimbriaphyllia", "Isopora", "Orbicella", "Pocillopora", "Porites", "Siderastrea",
+  "Sargassum", "Halophila", "Zostera", "Phyllospadix", "Rhizophora", "Pristis", "Ammodytes",
+  "Euphausia", "Thysanoessa", "Nematoscelis", "Nyctiphanes", "Aurelia", "Chrysaora", "Cyanea",
+  "Clupea", "Engraulis", "Gadus", "Mallotus", "Sardinops", "Phacellophora", "Semaeostomeae",
+  "Alariaceae", "Chordaceae", "Costariaceae", "Laminaricea", "Lessoniacea"
+)
+
+non_italic_descriptors <- c("Coral", "habitat", "in", "community", "waters", "and", "for", "or", "DPS", "ESU", "species", "area", "areas")
+
+format_species_paragraph <- function(cell_text) {
+  if (is.na(cell_text) || cell_text == "") {
+    return(as_paragraph(as_chunk("")))
+  }
+  
+  lines <- unlist(strsplit(cell_text, "
+"))
+  chunk_list <- list()
+  
+  for (i in seq_along(lines)) {
+    line <- lines[i]
+    is_last <- (i == length(lines))
+    nl <- if (is_last) "" else "
+"
+    
+    m <- regexec("^([A-Z][a-z]+)(\\s+([A-Z][a-z]+|[a-z]+))?", line)
+    matches <- regmatches(line, m)[[1]]
+    
+    if (length(matches) >= 2 && matches[2] %in% scientific_genera) {
+      genus <- matches[2]
+      second_word <- if (length(matches) >= 4) matches[4] else ""
+      
+      if (nchar(second_word) > 0 && !(second_word %in% non_italic_descriptors)) {
+        sci <- paste(genus, second_word)
+      } else {
+        sci <- genus
+      }
+      
+      rest <- paste0(substring(line, nchar(sci) + 1), nl)
+      
+      chunk_list[[length(chunk_list) + 1]] <- as_chunk(
+        sci, 
+        props = fp_text(font.family = "Times New Roman", font.size = 10, italic = TRUE)
+      )
+      if (nchar(rest) > 0) {
+        chunk_list[[length(chunk_list) + 1]] <- as_chunk(
+          rest, 
+          props = fp_text(font.family = "Times New Roman", font.size = 10, italic = FALSE)
+        )
+      }
+    } else {
+      chunk_list[[length(chunk_list) + 1]] <- as_chunk(
+        paste0(line, nl), 
+        props = fp_text(font.family = "Times New Roman", font.size = 10, italic = FALSE)
+      )
+    }
+  }
+  
+  do.call(as_paragraph, chunk_list)
+}
+
+# Applies precise word-level italics to flextable column
+apply_scientific_italics_column <- function(ft, j_col) {
+  col_name <- colnames(ft$body$dataset)[j_col]
+  cell_values <- ft$body$dataset[[col_name]]
+  
+  for (r in seq_along(cell_values)) {
+    p <- format_species_paragraph(cell_values[r])
+    ft <- mk_par(ft, i = r, j = j_col, value = p)
+  }
+  ft
+}
+
+# --- 3. HELPER FUNCTION: GROUP & SORT SPECIES NAMES ---
 format_species_group <- function(spp_vector) {
   spp_clean <- sort(unique(spp_vector))
   
-  # Extract base species name and ESU/DPS portion (handles -, –, or —)
   base_names <- sub("^([^–—-]+)\\s*[–—-]\\s*(.*)$", "\\1", spp_clean)
   esu_dps    <- ifelse(grepl("[–—-]", spp_clean),
                        sub("^([^–—-]+)\\s*[–—-]\\s*(.*)$", "\\2", spp_clean),
@@ -46,83 +126,115 @@ format_species_group <- function(spp_vector) {
     ) %>%
     arrange(base)
   
-  paste(res$formatted, collapse = "\n")
+  paste(res$formatted, collapse = "
+")
 }
 
-# --- 1. THE SPECIES SUMMARY FORMAT ---
+# --- 4. SPECIES SUMMARY FORMAT ---
 render_species_summary <- function(df) {
-  df %>%
+  cap_title <- "Physical and biological features of critical habitat by species"
+  
+  ft <- df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(Species, PBF_category) %>%
     summarise(
-      pbf_list = paste0("  \u2022 ", unique(.data[[target_col]]), collapse = "\n"),
+      pbf_list = paste0("  \u2022 ", unique(.data[[target_col]]), collapse = "
+"),
       .groups = "drop"
     ) %>%
     mutate(category_block = if_else(PBF_category == "",
                                    pbf_list,
-                                   paste0(PBF_category, ":\n", pbf_list))) %>%
-    # Step 1: Combine PBFs into a single formatted block per species
+                                   paste0(PBF_category, ":
+", pbf_list))) %>%
     group_by(Species) %>%
     summarise(
-      pbf_text = paste(category_block, collapse = "\n\n"),
+      pbf_text = paste(category_block, collapse = "
+
+"),
       .groups = "drop"
     ) %>%
-    # Step 2: Group species that share identical PBF text blocks and format names
     group_by(pbf_text) %>%
     summarise(
       'Species (ESU/DPS)' = format_species_group(Species),
       .groups = "drop"
     ) %>%
-    # Step 3: Sort rows alphabetically by species name
     arrange(`Species (ESU/DPS)`) %>%
-    rename('Physical and Biological Features' = pbf_text) %>%
-    select('Species (ESU/DPS)', 'Physical and Biological Features') %>%
+    rename('Physical and biological features' = pbf_text) %>%
+    select('Species (ESU/DPS)', 'Physical and biological features') %>%
     flextable() %>%
     theme_vanilla() %>%
     width(j = 1, width = 2.2) %>%
     width(j = 2, width = 4.3) %>%
     valign(valign = "top", part = "all") %>%
-    border_inner_h(border = fp_border(color="gray80", width = 1))
+    font(fontname = "Times New Roman", part = "all") %>%
+    fontsize(size = 10, part = "all") %>%
+    bold(part = "header") %>%
+    border_inner_h(border = fp_border(color="gray80", width = 1)) %>%
+    set_caption(
+      caption = as_paragraph(
+        as_chunk(cap_title, props = fp_text(font.family = "Times New Roman", font.size = 12, bold = TRUE))
+      ),
+      style = "Normal",
+      fp_p = fp_par(text.align = "left")
+    )
+  
+  apply_scientific_italics_column(ft, 1)
 }
 
-# --- 2. THE STRESSOR/OTHERS FORMAT ---
-format_st_table <- function(df) {
-  df %>%
+# --- 5. STRESSOR & OTHERS FORMAT ---
+format_st_table <- function(df, st_title) {
+  cap_text <- paste0("Physical and biological features associated with ", clean_stressor_name(st_title))
+  
+  ft <- df %>%
     mutate(PBF_category = ifelse(is.na(PBF_category) | PBF_category == "", "", PBF_category)) %>%
     group_by(PBF_category, .data[[target_col]]) %>%
     summarise(
-      Species_List = paste0(unique(Species), collapse = "\n"),
+      Species_List = format_species_group(Species),
       .groups = "drop"
     ) %>%
     mutate(PBF_Display = if_else(PBF_category == "",
                                 .data[[target_col]],
                                 paste0(PBF_category, ": ", .data[[target_col]]))) %>%
-    select('Physical and Biological Feature' = PBF_Display,
-           'Associated Species' = Species_List) %>%
+    select('Physical and biological feature' = PBF_Display,
+           'Associated species' = Species_List) %>%
     flextable() %>%
     theme_vanilla() %>%
     width(j = 1, width = 3.5) %>%
     width(j = 2, width = 3.0) %>%
     valign(valign = "top", part = "all") %>%
-    border_inner_h(border = fp_border(color="gray80", width = 1))
+    font(fontname = "Times New Roman", part = "all") %>%
+    fontsize(size = 10, part = "all") %>%
+    bold(part = "header") %>%
+    border_inner_h(border = fp_border(color="gray80", width = 1)) %>%
+    set_caption(
+      caption = as_paragraph(
+        as_chunk(cap_text, props = fp_text(font.family = "Times New Roman", font.size = 12, bold = TRUE))
+      ),
+      style = "Normal",
+      fp_p = fp_par(text.align = "left")
+    )
+  
+  apply_scientific_italics_column(ft, 2)
 }
 ```
 
 ```{r summary_render, echo=FALSE, message=FALSE}
+# Render the Summary Table
 if(!is.null(params$data_list) && length(params$data_list) >= 1) {
   render_species_summary(params$data_list[[1]])
 }
 ```
 
 ```{r loop_render, echo=FALSE, results='asis', message=FALSE}
+# --- 6. DYNAMIC LOOP FOR ALL SELECTED STRESSORS ---
 if(!is.null(params$data_list) && length(params$data_list) >= 2) {
   item_names <- names(params$data_list)
   stressor_indices <- which(item_names != "Outside Selection" & seq_along(item_names) > 1)
   
   for (i in stressor_indices) {
     cat("\n\n\\newpage\n\n")
-    cat("# ", item_names[i], "\n\n")
-    ft <- format_st_table(params$data_list[[i]])
+    cat("# ", clean_stressor_name(item_names[i]), "\n\n")
+    ft <- format_st_table(params$data_list[[i]], item_names[i])
     cat(knitr::knit_print(ft))
     cat("\n\n")
   }
@@ -130,10 +242,11 @@ if(!is.null(params$data_list) && length(params$data_list) >= 2) {
 ```
 
 ```{r others_render, echo=FALSE, results='asis', message=FALSE}
+# --- 7. FINAL TABLE: OUTSIDE SELECTION ---
 if("Outside Selection" %in% names(params$data_list)) {
   cat("\n\n\\newpage\n\n")
   cat("# Outside Selection\n\n")
-  ft_others <- format_st_table(params$data_list[["Outside Selection"]])
+  ft_others <- format_st_table(params$data_list[["Outside Selection"]], "Outside Selection")
   cat(knitr::knit_print(ft_others))
 }
 ```
