@@ -18,6 +18,8 @@ ui_values$Category <- ifelse(is.na(ui_values$Category) | trimws(ui_values$Catego
                              "Other Stressors", 
                              trimws(ui_values$Category))
 Stressors <- setNames(as.character(ui_values$Data_sheet_values), as.character(ui_values$UI_values))
+# Lookup mapping data sheet values back to friendly UI names for display (e.g., table tabs and reports)
+stressor_ui_lookup <- setNames(as.character(ui_values$UI_values), as.character(ui_values$Data_sheet_values))
 
 # Load the Basin lookup file 
 basin_values <- read.csv("data/All PBFs - Basins.csv")
@@ -33,6 +35,28 @@ PBFs <- PBFs[order(PBFs$Species), ]
 
 Habitat_Types <- c("Freshwater", "Estuarine", "Marine", "Land")
 Global_Species_List <- unique(PBFs$Species)
+
+# Helper function to generate categorized stressor checkbox blocks
+make_stressor_ui_blocks <- function(prefix = "init") {
+  unique_cats <- unique(ui_values$Category)
+  lapply(unique_cats, function(cat_name) {
+    sub_df <- ui_values[ui_values$Category == cat_name, ]
+    chunk_choices <- setNames(as.character(sub_df$Data_sheet_values), 
+                              as.character(sub_df$UI_values))
+    tagList(
+      tags$div(
+        style = "margin-top: 15px; margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid #e9ecef; color: #495057;",
+        cat_name
+      ),
+      checkboxGroupInput(
+        inputId = paste0("checkStressors_", prefix, "_chunk_", gsub("[^[:alnum:]]", "_", cat_name)), 
+        label = NULL, 
+        choices = chunk_choices,
+        selected = NULL
+      )
+    )
+  })
+}
 
 # UI Definition ---
 ui <- page_fillable(
@@ -84,7 +108,6 @@ ui <- page_fillable(
         checkboxGroupInput("checkHabitats_init", label = NULL, 
                            choices = Habitat_Types, selected = Habitat_Types)
       ),
-      # FIXED: Moved directly into the static UI to eliminate the infinite loop
       card(
         card_header("Basins/Oceans"),
         tags$div(
@@ -117,7 +140,21 @@ ui <- page_fillable(
         ),
         checkboxGroupInput("checkSpecies_init", label = NULL, choices = Global_Species_List, selected = Global_Species_List)
       ),
-      uiOutput("stressors_init_ui")
+      conditionalPanel(
+        condition = "input.ByStressors == true",
+        card(
+          class = "selection-card", 
+          style = "overflow-y: auto; padding-top: 10px;",
+          card_header("Select Stressors"),
+          tags$div(
+            class = "d-flex gap-2 mb-2",
+            actionLink("all_stressors_init", "Select All", class = "bulk-action-link"),
+            tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+            actionLink("none_stressors_init", "Deselect All", class = "bulk-action-link")
+          ),
+          tagList(make_stressor_ui_blocks("init"))
+        )
+      )
     )
   ),
   
@@ -130,6 +167,12 @@ ui <- page_fillable(
         card(card_header("Downloads"),
              downloadButton("downloadxlsx_sidebar", "XLSX", class = "btn-outline-secondary w-100 mb-2"),
              downloadButton("downloaddocx_sidebar", "DOCX", class = "btn-outline-secondary w-100")),
+        card(
+          card_header("Table Organization"),
+          checkboxInput("BySpecies_sidebar", "Create a table of all PBFs by Species", TRUE),
+          checkboxInput("ByStressors_sidebar", "Create individual tables per Stressor", FALSE),
+          checkboxInput("ByOthers_sidebar", "Include Table of PBFs outside selected Stressors", FALSE)
+        ),
         card(card_header("Habitat Areas"),
              tags$div(
                class = "d-flex gap-2 mb-2",
@@ -138,7 +181,6 @@ ui <- page_fillable(
                actionLink("none_habitats_sidebar", "Deselect All", class = "bulk-action-link")
              ),
              checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
-        # FIXED: Moved directly into the static UI sidebar container
         card(card_header("Basins/Oceans"), 
              tags$div(
                class = "d-flex gap-2 mb-2",
@@ -147,12 +189,24 @@ ui <- page_fillable(
                actionLink("none_basins_sidebar", "Deselect All", class = "bulk-action-link")
              ),
              checkboxGroupInput("checkBasins_sidebar", label = NULL, choices = Unique_Basins, selected = Unique_Basins)),
-        conditionalPanel(condition = "input.ByStressors == true",
-                         card(card_header("Stressors"), checkboxGroupInput("checkStressors", NULL, choices = Stressors))),
+        conditionalPanel(
+          condition = "input.ByStressors_sidebar == true",
+          card(
+            style = "max-height: 400px; overflow-y: auto;",
+            card_header("Select Stressors"),
+            tags$div(
+              class = "d-flex gap-2 mb-2",
+              actionLink("all_stressors_sidebar", "Select All", class = "bulk-action-link"),
+              tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+              actionLink("none_stressors_sidebar", "Deselect All", class = "bulk-action-link")
+            ),
+            tagList(make_stressor_ui_blocks("sidebar"))
+          )
+        ),
         card(card_header("Critical Habitats"),
              tags$div(
                class = "d-flex gap-2 mb-2",
-               actionLink("all_spp_sidebar", "Select All", class = "bulk-action-link"),
+               actionLink("all_spp_sidebar", "Select All Visible", class = "bulk-action-link"),
                tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
                actionLink("none_spp_sidebar", "Deselect All", class = "bulk-action-link")
              ),
@@ -175,10 +229,17 @@ server <- function(input, output, session) {
     stressors = NULL
   )
   
-  # Aggregator: Gathering Stressors
+  # Aggregators: Gathering checked stressors across chunks
   current_checked_stressors <- reactive({
     unique_cats <- unique(ui_values$Category)
     chunk_ids <- paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", unique_cats))
+    checked_list <- lapply(chunk_ids, function(id) input[[id]])
+    return(unlist(checked_list))
+  })
+  
+  current_checked_stressors_sidebar <- reactive({
+    unique_cats <- unique(ui_values$Category)
+    chunk_ids <- paste0("checkStressors_sidebar_chunk_", gsub("[^[:alnum:]]", "_", unique_cats))
     checked_list <- lapply(chunk_ids, function(id) input[[id]])
     return(unlist(checked_list))
   })
@@ -188,7 +249,7 @@ server <- function(input, output, session) {
     if (input$preview == 0) input$checkBasins_init else input$checkBasins_sidebar
   })
   
-  # ONE-WAY COMPUTE FUNCTION: Re-evaluates target elements ONLY when top filters update
+  # INITIAL UI: Filter species choices when habitats or basins update
   observeEvent({
     input$checkHabitats_init
     input$checkBasins_init
@@ -212,6 +273,8 @@ server <- function(input, output, session) {
         any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
       })
       df <- df[basin_match, ]
+    } else {
+      df <- df[0, ]
     }
     
     # 3. Strip exclusion criteria rows globally
@@ -236,6 +299,49 @@ server <- function(input, output, session) {
     )
   }, ignoreInit = FALSE)
   
+  # SECOND STAGE (SIDEBAR) UI: Filter species choices when habitats or basins update
+  observeEvent({
+    input$checkHabitats
+    input$checkBasins_sidebar
+  }, {
+    req(input$preview > 0)
+    df <- PBFs
+    
+    # 1. Filter by Habitat Areas
+    hab_selection <- input$checkHabitats
+    if (!is.null(hab_selection) && length(hab_selection) > 0) {
+      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
+      df <- df[habitat_logical, ]
+    } else {
+      df <- df[0, ]
+    }
+    
+    # 2. Filter by Basins/Oceans
+    basin_sel <- input$checkBasins_sidebar
+    if (!is.null(basin_sel) && length(basin_sel) > 0) {
+      basin_match <- sapply(df$basin_ocean, function(row_val) {
+        if (is.na(row_val) || row_val == "") return(FALSE)
+        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
+      })
+      df <- df[basin_match, ]
+    } else {
+      df <- df[0, ]
+    }
+    
+    # 3. Strip exclusion criteria rows globally
+    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
+    
+    updated_choices <- unique(df$Species)
+    still_checked <- intersect(input$checkSpecies, updated_choices)
+    
+    updateCheckboxGroupInput(
+      session, 
+      "checkSpecies", 
+      choices = updated_choices, 
+      selected = still_checked
+    )
+  }, ignoreInit = TRUE)
+  
   # Bulk actions for Initial UI filters
   observeEvent(input$all_habitats_init, {
     updateCheckboxGroupInput(session, "checkHabitats_init", selected = Habitat_Types)
@@ -249,6 +355,22 @@ server <- function(input, output, session) {
   })
   observeEvent(input$none_basins_init, {
     updateCheckboxGroupInput(session, "checkBasins_init", selected = character(0))
+  })
+  
+  observeEvent(input$all_stressors_init, {
+    unique_cats <- unique(ui_values$Category)
+    for (cat_name in unique_cats) {
+      sub_df <- ui_values[ui_values$Category == cat_name, ]
+      init_id <- paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      updateCheckboxGroupInput(session, init_id, selected = as.character(sub_df$Data_sheet_values))
+    }
+  })
+  observeEvent(input$none_stressors_init, {
+    unique_cats <- unique(ui_values$Category)
+    for (cat_name in unique_cats) {
+      init_id <- paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      updateCheckboxGroupInput(session, init_id, selected = character(0))
+    }
   })
   
   observeEvent(input$all_spp, {
@@ -266,7 +388,7 @@ server <- function(input, output, session) {
         any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
       })
       df <- df[basin_match, ]
-    }
+    } else { df <- df[0, ] }
     df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
     
     updateCheckboxGroupInput(session, "checkSpecies_init", selected = unique(df$Species))
@@ -290,8 +412,41 @@ server <- function(input, output, session) {
     updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = character(0))
   })
   
+  observeEvent(input$all_stressors_sidebar, {
+    unique_cats <- unique(ui_values$Category)
+    for (cat_name in unique_cats) {
+      sub_df <- ui_values[ui_values$Category == cat_name, ]
+      side_id <- paste0("checkStressors_sidebar_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      updateCheckboxGroupInput(session, side_id, selected = as.character(sub_df$Data_sheet_values))
+    }
+  })
+  observeEvent(input$none_stressors_sidebar, {
+    unique_cats <- unique(ui_values$Category)
+    for (cat_name in unique_cats) {
+      side_id <- paste0("checkStressors_sidebar_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      updateCheckboxGroupInput(session, side_id, selected = character(0))
+    }
+  })
+  
   observeEvent(input$all_spp_sidebar, {
-    updateCheckboxGroupInput(session, "checkSpecies", selected = Global_Species_List)
+    df <- PBFs
+    hab_selection <- input$checkHabitats
+    if (!is.null(hab_selection) && length(hab_selection) > 0) {
+      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
+      df <- df[habitat_logical, ]
+    } else { df <- df[0, ] }
+    
+    basin_sel <- input$checkBasins_sidebar
+    if (!is.null(basin_sel) && length(basin_sel) > 0) {
+      basin_match <- sapply(df$basin_ocean, function(row_val) {
+        if (is.na(row_val) || row_val == "") return(FALSE)
+        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
+      })
+      df <- df[basin_match, ]
+    } else { df <- df[0, ] }
+    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
+    
+    updateCheckboxGroupInput(session, "checkSpecies", selected = unique(df$Species))
   })
   observeEvent(input$none_spp_sidebar, {
     updateCheckboxGroupInput(session, "checkSpecies", selected = character(0))
@@ -306,10 +461,40 @@ server <- function(input, output, session) {
     locked_selections$basins <- input$checkBasins_init
     locked_selections$stressors <- current_checked_stressors()
     
-    updateCheckboxGroupInput(session, "checkSpecies", selected = locked_selections$species, choices = Global_Species_List)
+    # Sync Table Organization to sidebar
+    updateCheckboxInput(session, "BySpecies_sidebar", value = input$BySpecies)
+    updateCheckboxInput(session, "ByStressors_sidebar", value = input$ByStressors)
+    updateCheckboxInput(session, "ByOthers_sidebar", value = input$ByOthers)
+    
+    # Sync Habitats and Basins to sidebar
     updateCheckboxGroupInput(session, "checkHabitats", selected = locked_selections$habitats)
     updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = locked_selections$basins)
-    updateCheckboxGroupInput(session, "checkStressors", selected = locked_selections$stressors)
+    
+    # Sync filtered species choices and selection to sidebar
+    df_init <- PBFs
+    if (!is.null(locked_selections$habitats) && length(locked_selections$habitats) > 0) {
+      habitat_logical <- rowSums(df_init[, locked_selections$habitats, drop = FALSE] == 1, na.rm = TRUE) > 0
+      df_init <- df_init[habitat_logical, ]
+    } else { df_init <- df_init[0, ] }
+    if (!is.null(locked_selections$basins) && length(locked_selections$basins) > 0) {
+      basin_match <- sapply(df_init$basin_ocean, function(row_val) {
+        if (is.na(row_val) || row_val == "") return(FALSE)
+        any(sapply(locked_selections$basins, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
+      })
+      df_init <- df_init[basin_match, ]
+    } else { df_init <- df_init[0, ] }
+    df_init <- df_init[is.na(df_init$Area_Designated_Yes_No) | df_init$Area_Designated_Yes_No != 0, ]
+    valid_choices <- unique(df_init$Species)
+    still_checked <- intersect(locked_selections$species, valid_choices)
+    updateCheckboxGroupInput(session, "checkSpecies", choices = valid_choices, selected = still_checked)
+    
+    # Sync Stressor chunks to sidebar
+    unique_cats <- unique(ui_values$Category)
+    for (cat_name in unique_cats) {
+      init_id <- paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      side_id <- paste0("checkStressors_sidebar_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      updateCheckboxGroupInput(session, side_id, selected = input[[init_id]])
+    }
   }, ignoreInit = TRUE)
   
   # Base Dataset Engine
@@ -334,44 +519,12 @@ server <- function(input, output, session) {
         any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
       })
       df <- df[basin_match, ]
-    }
+    } else { return(df[0, ]) }
     
     df <- df[!is.na(df[[col]]) & trimws(df[[col]]) != "", ]
     df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
     
     return(df)
-  })
-  
-  # Render the scrolling checkbox blocks with category headers
-  output$stressors_init_ui <- renderUI({
-    req(input$ByStressors)
-    unique_cats <- unique(ui_values$Category)
-    
-    checkbox_blocks <- lapply(unique_cats, function(cat_name) {
-      sub_df <- ui_values[ui_values$Category == cat_name, ]
-      chunk_choices <- setNames(as.character(sub_df$Data_sheet_values), 
-                                as.character(sub_df$UI_values))
-      
-      tagList(
-        tags$div(
-          style = "margin-top: 15px; margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid #e9ecef; color: #495057;",
-          cat_name
-        ),
-        checkboxGroupInput(
-          inputId = paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", cat_name)), 
-          label = NULL, 
-          choices = chunk_choices,
-          selected = input$checkStressors
-        )
-      )
-    })
-    
-    card(
-      class = "selection-card", 
-      style = "overflow-y: auto;",
-      card_header("Select Stressors"),
-      do.call(tagList, checkbox_blocks)
-    )
   })
   
   render_my_datatable <- function(data_func) {
@@ -401,29 +554,41 @@ server <- function(input, output, session) {
     col <- target_pbf_col()
     df <- base_filtered_data()
     req(col %in% colnames(df))
-    st_sel <- if(input$preview == 0) locked_selections$stressors else input$checkStressors
+    st_sel <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
     if (is.null(st_sel) || length(st_sel) == 0) return(df[, c("Species", "PBF_category", col)])
-    sel_cols <- df[, st_sel, drop = FALSE]
+    valid_cols <- intersect(st_sel, colnames(df))
+    if (length(valid_cols) == 0) return(df[, c("Species", "PBF_category", col)])
+    sel_cols <- df[, valid_cols, drop = FALSE]
     sel_cols[is.na(sel_cols)] <- 0
     df[rowSums(sel_cols == 1) == 0, c("Species", "PBF_category", col)]
   }
   
   output$main_tabs <- renderUI({
     req(input$preview > 0)
-    req(input$BySpecies | input$ByStressors | input$ByOthers)
-    tabs <- list()
-    if (input$BySpecies) tabs <- append(tabs, list(nav_panel("Combined Species", DT::dataTableOutput("PBFtable_BySpecies"))))
+    by_spp <- if (input$preview == 0) input$BySpecies else input$BySpecies_sidebar
+    by_stressors <- if (input$preview == 0) input$ByStressors else input$ByStressors_sidebar
+    by_others <- if (input$preview == 0) input$ByOthers else input$ByOthers_sidebar
     
-    st_active <- if(input$preview == 0) locked_selections$stressors else input$checkStressors
-    if (input$ByStressors && !is.null(st_active)) {
+    req(isTRUE(by_spp) | isTRUE(by_stressors) | isTRUE(by_others))
+    tabs <- list()
+    if (isTRUE(by_spp)) {
+      tabs <- append(tabs, list(nav_panel("Combined Species", DT::dataTableOutput("PBFtable_BySpecies"))))
+    }
+    
+    st_active <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
+    if (isTRUE(by_stressors) && !is.null(st_active) && length(st_active) > 0) {
       st_tabs <- lapply(st_active, function(st) {
         id <- paste0("table_", gsub("[^[:alnum:]]", "_", st))
+        ui_title <- stressor_ui_lookup[[st]]
+        if (is.null(ui_title) || is.na(ui_title) || trimws(ui_title) == "") {
+          ui_title <- st
+        }
         output[[id]] <- render_my_datatable(function() generate_stressor_data(st))
-        nav_panel(st, DT::dataTableOutput(id))
+        nav_panel(ui_title, DT::dataTableOutput(id))
       })
       tabs <- append(tabs, st_tabs)
     }
-    if (input$ByOthers) {
+    if (isTRUE(by_others)) {
       output$PBFtable_Others <- render_my_datatable(generate_other_pbfs_data)
       tabs <- append(tabs, list(nav_panel("Outside Selection", DT::dataTableOutput("PBFtable_Others"))))
     }
@@ -439,15 +604,23 @@ server <- function(input, output, session) {
   output$downloadxlsx_sidebar <- downloadHandler(
     filename = function() { paste0("PBF_Tables_", Sys.Date(), ".xlsx") },
     content = function(file) {
+      by_spp <- if (input$preview == 0) input$BySpecies else input$BySpecies_sidebar
+      by_stressors <- if (input$preview == 0) input$ByStressors else input$ByStressors_sidebar
+      by_others <- if (input$preview == 0) input$ByOthers else input$ByOthers_sidebar
+      st_active <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
+      
       out <- list()
       col <- target_pbf_col()
-      if (input$BySpecies) out[["Combined"]] <- base_filtered_data()[, c("Species","PBF_category", col)]
+      if (isTRUE(by_spp)) out[["Combined"]] <- base_filtered_data()[, c("Species","PBF_category", col)]
       
-      st_active <- if(input$preview == 0) locked_selections$stressors else input$checkStressors
-      if (input$ByStressors && !is.null(st_active)) {
-        for (st in st_active) out[[substr(st, 1, 31)]] <- generate_stressor_data(st)
+      if (isTRUE(by_stressors) && !is.null(st_active) && length(st_active) > 0) {
+        for (st in st_active) {
+          ui_title <- stressor_ui_lookup[[st]]
+          sheet_name <- if (!is.null(ui_title) && !is.na(ui_title) && trimws(ui_title) != "") ui_title else st
+          out[[substr(sheet_name, 1, 31)]] <- generate_stressor_data(st)
+        }
       }
-      if (input$ByOthers) out[["Outside_Selection"]] <- generate_other_pbfs_data()
+      if (isTRUE(by_others)) out[["Outside_Selection"]] <- generate_other_pbfs_data()
       writexl::write_xlsx(out, path = file)
     }
   )
@@ -455,15 +628,23 @@ server <- function(input, output, session) {
   output$downloaddocx_sidebar <- downloadHandler(
     filename = function() { paste0("PBF_Report_", Sys.Date(), ".docx") },
     content = function(file) {
+      by_spp <- if (input$preview == 0) input$BySpecies else input$BySpecies_sidebar
+      by_stressors <- if (input$preview == 0) input$ByStressors else input$ByStressors_sidebar
+      by_others <- if (input$preview == 0) input$ByOthers else input$ByOthers_sidebar
+      st_active <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
+      
       final_list <- list()
       col <- target_pbf_col()
-      if(input$BySpecies) final_list[["Species Summary"]] <- base_filtered_data()[, c("Species", "PBF_category", col)]
+      if (isTRUE(by_spp)) final_list[["Species Summary"]] <- base_filtered_data()[, c("Species", "PBF_category", col)]
       
-      st_active <- if(input$preview == 0) locked_selections$stressors else input$checkStressors
-      if (input$ByStressors && !is.null(st_active)) {
-        for (st in st_active) final_list[[st]] <- generate_stressor_data(st)
+      if (isTRUE(by_stressors) && !is.null(st_active) && length(st_active) > 0) {
+        for (st in st_active) {
+          ui_title <- stressor_ui_lookup[[st]]
+          report_name <- if (!is.null(ui_title) && !is.na(ui_title) && trimws(ui_title) != "") ui_title else st
+          final_list[[report_name]] <- generate_stressor_data(st)
+        }
       }
-      if (input$ByOthers) final_list[["Outside Selection"]] <- generate_other_pbfs_data()
+      if (isTRUE(by_others)) final_list[["Outside Selection"]] <- generate_other_pbfs_data()
       rmarkdown::render("report_template.Rmd", output_file = file, params = list(data_list = final_list, pbf_column = col))
     }
   )
