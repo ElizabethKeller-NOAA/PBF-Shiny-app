@@ -40,8 +40,25 @@ ui <- page_fillable(
     tags$style(HTML("
       [data-display-if='input.preview == 0'] .selection-card { height: 600px !important; }
       [data-display-if='input.preview > 0'] .card { height: 100% !important; }
-      .shiny-input-checkboxgroup .checkbox label { display: flex !important; align-items: flex-start; }
-      .shiny-input-checkboxgroup .checkbox label span { white-space: normal !important; margin-left: 10px; }
+      .shiny-input-checkboxgroup .checkbox label,
+      .shiny-input-checkboxgroup .form-check { 
+        display: flex !important; 
+        align-items: flex-start !important; 
+      }
+      .shiny-input-checkboxgroup input[type='checkbox'] {
+        width: 16px !important;
+        height: 16px !important;
+        min-width: 16px !important;
+        min-height: 16px !important;
+        flex-shrink: 0 !important;
+        margin-top: 3px !important;
+        cursor: pointer;
+      }
+      .shiny-input-checkboxgroup .checkbox label span,
+      .shiny-input-checkboxgroup .form-check-label { 
+        white-space: normal !important; 
+        margin-left: 10px !important; 
+      }
       .bulk-action-link { font-size: 0.8rem; text-decoration: none; cursor: pointer; color: #007bff; margin-bottom: 5px; display: block; }
     "))
   ),
