@@ -39,20 +39,24 @@ Global_Species_List <- unique(PBFs$Species)
 # Helper function to generate categorized stressor checkbox blocks
 make_stressor_ui_blocks <- function(prefix = "init") {
   unique_cats <- unique(ui_values$Category)
-  lapply(unique_cats, function(cat_name) {
+  lapply(seq_along(unique_cats), function(i) {
+    cat_name <- unique_cats[i]
     sub_df <- ui_values[ui_values$Category == cat_name, ]
     chunk_choices <- setNames(as.character(sub_df$Data_sheet_values), 
                               as.character(sub_df$UI_values))
     tagList(
       tags$div(
-        style = "margin-top: 15px; margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid #e9ecef; color: #495057;",
+        class = paste0("stressor-subhead", if(i == 1) " first-subhead" else ""),
         cat_name
       ),
-      checkboxGroupInput(
-        inputId = paste0("checkStressors_", prefix, "_chunk_", gsub("[^[:alnum:]]", "_", cat_name)), 
-        label = NULL, 
-        choices = chunk_choices,
-        selected = NULL
+      tags$div(
+        class = "stressor-chunk",
+        checkboxGroupInput(
+          inputId = paste0("checkStressors_", prefix, "_chunk_", gsub("[^[:alnum:]]", "_", cat_name)), 
+          label = NULL, 
+          choices = chunk_choices,
+          selected = NULL
+        )
       )
     )
   })
@@ -83,7 +87,84 @@ ui <- page_fillable(
         white-space: normal !important; 
         margin-left: 10px !important; 
       }
-      .bulk-action-link { font-size: 0.8rem; text-decoration: none; cursor: pointer; color: #007bff; display: inline-block; }
+      /* Bulk action bar (Select All / Deselect All) */
+      .bulk-action-bar {
+        margin-top: 0 !important;
+        margin-bottom: 4px !important;
+        padding-bottom: 0 !important;
+        line-height: 1.2 !important;
+      }
+      .bulk-action-link { 
+        font-size: 0.8rem; 
+        text-decoration: none; 
+        cursor: pointer; 
+        color: #007bff; 
+        display: inline-block; 
+      }
+      
+      /* Completely hide empty shiny labels so they do not add blank space */
+      .shiny-input-container label:empty,
+      label.shiny-label-null,
+      label.control-label:empty {
+        display: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 0 !important;
+        line-height: 0 !important;
+      }
+      
+      /* Reduce bslib card flex gap so bulk action bar and checkboxes sit together */
+      .card {
+        --bslib-card-body-gap: 4px !important;
+      }
+      .card-body {
+        gap: 4px !important;
+      }
+      
+      /* Remove excess margin from input containers inside cards */
+      .card .shiny-input-container {
+        margin-top: 0 !important;
+        margin-bottom: 4px !important;
+      }
+      
+      .shiny-input-checkboxgroup .shiny-options-group {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+      }
+      
+      .shiny-input-checkboxgroup .checkbox:first-child,
+      .shiny-input-checkboxgroup .form-check:first-child {
+        margin-top: 0 !important;
+      }
+      
+      /* Stressor subheadings: original text size, bold, tight clean margins */
+      .stressor-subhead {
+        font-weight: bold;
+        font-size: 1rem;
+        color: #495057;
+        border-bottom: 1px solid #e9ecef;
+        padding-bottom: 2px;
+        margin-top: 8px;
+        margin-bottom: 3px;
+      }
+      .stressor-subhead.first-subhead {
+        margin-top: 2px !important;
+      }
+      
+      /* Stressor chunks: seamless fit under each subhead */
+      .stressor-chunk .shiny-input-container {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+      }
+      .stressor-chunk .shiny-options-group {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+      }
+      .stressor-chunk .form-check,
+      .stressor-chunk .checkbox {
+        margin-top: 1px !important;
+        margin-bottom: 2px !important;
+      }
     "))
   ),
   
@@ -92,7 +173,7 @@ ui <- page_fillable(
     layout_columns(
       col_widths = c(3, 3, 3, 3), 
       card(
-        card_header("Table Organization"),
+        card_header("Table Options"),
         checkboxInput("BySpecies", "Create a table of all PBFs by Species", TRUE),
         checkboxInput("ByStressors", "Create individual tables per Stressor", FALSE),
         checkboxInput("ByOthers", "Include Table of PBFs outside selected Stressors", FALSE)
@@ -100,7 +181,7 @@ ui <- page_fillable(
       card(
         card_header("Habitat Areas"),
         tags$div(
-          class = "d-flex gap-2 mb-2",
+          class = "bulk-action-bar d-flex gap-2 align-items-center",
           actionLink("all_habitats_init", "Select All", class = "bulk-action-link"),
           tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
           actionLink("none_habitats_init", "Deselect All", class = "bulk-action-link")
@@ -111,7 +192,7 @@ ui <- page_fillable(
       card(
         card_header("Basins/Oceans"),
         tags$div(
-          class = "d-flex gap-2 mb-2",
+          class = "bulk-action-bar d-flex gap-2 align-items-center",
           actionLink("all_basins_init", "Select All", class = "bulk-action-link"),
           tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
           actionLink("none_basins_init", "Deselect All", class = "bulk-action-link")
@@ -133,7 +214,7 @@ ui <- page_fillable(
         style = "overflow-y: auto; padding-top: 10px;", 
         card_header("Choose Critical Habitats"),
         tags$div(
-          class = "d-flex gap-2 mb-2",
+          class = "bulk-action-bar d-flex gap-2 align-items-center",
           actionLink("all_spp", "Select All Visible", class = "bulk-action-link"),
           tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
           actionLink("none_spp", "Deselect All", class = "bulk-action-link")
@@ -147,7 +228,7 @@ ui <- page_fillable(
           style = "overflow-y: auto; padding-top: 10px;",
           card_header("Select Stressors"),
           tags$div(
-            class = "d-flex gap-2 mb-2",
+            class = "bulk-action-bar d-flex gap-2 align-items-center",
             actionLink("all_stressors_init", "Select All", class = "bulk-action-link"),
             tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
             actionLink("none_stressors_init", "Deselect All", class = "bulk-action-link")
@@ -168,14 +249,14 @@ ui <- page_fillable(
              downloadButton("downloadxlsx_sidebar", "XLSX", class = "btn-outline-secondary w-100 mb-2"),
              downloadButton("downloaddocx_sidebar", "DOCX", class = "btn-outline-secondary w-100")),
         card(
-          card_header("Table Organization"),
+          card_header("Table Options"),
           checkboxInput("BySpecies_sidebar", "Create a table of all PBFs by Species", TRUE),
           checkboxInput("ByStressors_sidebar", "Create individual tables per Stressor", FALSE),
           checkboxInput("ByOthers_sidebar", "Include Table of PBFs outside selected Stressors", FALSE)
         ),
         card(card_header("Habitat Areas"),
              tags$div(
-               class = "d-flex gap-2 mb-2",
+               class = "bulk-action-bar d-flex gap-2 align-items-center",
                actionLink("all_habitats_sidebar", "Select All", class = "bulk-action-link"),
                tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
                actionLink("none_habitats_sidebar", "Deselect All", class = "bulk-action-link")
@@ -183,7 +264,7 @@ ui <- page_fillable(
              checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
         card(card_header("Basins/Oceans"), 
              tags$div(
-               class = "d-flex gap-2 mb-2",
+               class = "bulk-action-bar d-flex gap-2 align-items-center",
                actionLink("all_basins_sidebar", "Select All", class = "bulk-action-link"),
                tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
                actionLink("none_basins_sidebar", "Deselect All", class = "bulk-action-link")
@@ -195,7 +276,7 @@ ui <- page_fillable(
             style = "max-height: 400px; overflow-y: auto;",
             card_header("Select Stressors"),
             tags$div(
-              class = "d-flex gap-2 mb-2",
+              class = "bulk-action-bar d-flex gap-2 align-items-center",
               actionLink("all_stressors_sidebar", "Select All", class = "bulk-action-link"),
               tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
               actionLink("none_stressors_sidebar", "Deselect All", class = "bulk-action-link")
@@ -205,7 +286,7 @@ ui <- page_fillable(
         ),
         card(card_header("Critical Habitats"),
              tags$div(
-               class = "d-flex gap-2 mb-2",
+               class = "bulk-action-bar d-flex gap-2 align-items-center",
                actionLink("all_spp_sidebar", "Select All Visible", class = "bulk-action-link"),
                tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
                actionLink("none_spp_sidebar", "Deselect All", class = "bulk-action-link")
@@ -461,7 +542,7 @@ server <- function(input, output, session) {
     locked_selections$basins <- input$checkBasins_init
     locked_selections$stressors <- current_checked_stressors()
     
-    # Sync Table Organization to sidebar
+    # Sync Table Options to sidebar
     updateCheckboxInput(session, "BySpecies_sidebar", value = input$BySpecies)
     updateCheckboxInput(session, "ByStressors_sidebar", value = input$ByStressors)
     updateCheckboxInput(session, "ByOthers_sidebar", value = input$ByOthers)
