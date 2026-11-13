@@ -14,8 +14,8 @@ PBFs <- read.csv("data/All PBFs - Working Copy.csv")
 
 # Load the stressor/category UI lookup file
 ui_values <- read.csv("data/All PBFs - UI values.csv")
-ui_values$Category <- ifelse(is.na(ui_values$Category) | trimws(ui_values$Category) == "", 
-                             "General Parameters", 
+ui_values$Category <- ifelse(is.na(ui_values$Category) | trimws(ui_values$Category) == "" | trimws(ui_values$Category) == "General Parameters", 
+                             "Other Stressors", 
                              trimws(ui_values$Category))
 Stressors <- setNames(as.character(ui_values$Data_sheet_values), as.character(ui_values$UI_values))
 
@@ -70,7 +70,7 @@ ui <- page_fillable(
       card(
         card_header("Table Organization"),
         checkboxInput("BySpecies", "Create a table of all PBFs by Species", TRUE),
-        checkboxInput("ByStressors", "Create individual tables per Stressor/Category", FALSE),
+        checkboxInput("ByStressors", "Create individual tables per Stressor", FALSE),
         checkboxInput("ByOthers", "Include Table of PBFs outside selected Stressors", FALSE)
       ),
       card(
@@ -369,7 +369,7 @@ server <- function(input, output, session) {
     card(
       class = "selection-card", 
       style = "overflow-y: auto;",
-      card_header("Select Stressors/Categories"),
+      card_header("Select Stressors"),
       do.call(tagList, checkbox_blocks)
     )
   })
