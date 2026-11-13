@@ -59,7 +59,7 @@ ui <- page_fillable(
         white-space: normal !important; 
         margin-left: 10px !important; 
       }
-      .bulk-action-link { font-size: 0.8rem; text-decoration: none; cursor: pointer; color: #007bff; margin-bottom: 5px; display: block; }
+      .bulk-action-link { font-size: 0.8rem; text-decoration: none; cursor: pointer; color: #007bff; display: inline-block; }
     "))
   ),
   
@@ -75,13 +75,25 @@ ui <- page_fillable(
       ),
       card(
         card_header("Habitat Areas"),
+        tags$div(
+          class = "d-flex gap-2 mb-2",
+          actionLink("all_habitats_init", "Select All", class = "bulk-action-link"),
+          tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+          actionLink("none_habitats_init", "Deselect All", class = "bulk-action-link")
+        ),
         checkboxGroupInput("checkHabitats_init", label = NULL, 
                            choices = Habitat_Types, selected = Habitat_Types)
       ),
       # FIXED: Moved directly into the static UI to eliminate the infinite loop
       card(
         card_header("Basins/Oceans"),
-        checkboxGroupInput("checkBasins_init", label = NULL, choices = Unique_Basins)
+        tags$div(
+          class = "d-flex gap-2 mb-2",
+          actionLink("all_basins_init", "Select All", class = "bulk-action-link"),
+          tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+          actionLink("none_basins_init", "Deselect All", class = "bulk-action-link")
+        ),
+        checkboxGroupInput("checkBasins_init", label = NULL, choices = Unique_Basins, selected = Unique_Basins)
       ),
       layout_columns(
         col_widths = 12,
@@ -97,8 +109,13 @@ ui <- page_fillable(
         class = "selection-card", 
         style = "overflow-y: auto; padding-top: 10px;", 
         card_header("Choose Critical Habitats"),
-        actionLink("all_spp", "Select All Visible", class = "bulk-action-link"),
-        checkboxGroupInput("checkSpecies_init", label = NULL, choices = Global_Species_List)
+        tags$div(
+          class = "d-flex gap-2 mb-2",
+          actionLink("all_spp", "Select All Visible", class = "bulk-action-link"),
+          tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+          actionLink("none_spp", "Deselect All", class = "bulk-action-link")
+        ),
+        checkboxGroupInput("checkSpecies_init", label = NULL, choices = Global_Species_List, selected = Global_Species_List)
       ),
       uiOutput("stressors_init_ui")
     )
@@ -114,13 +131,32 @@ ui <- page_fillable(
              downloadButton("downloadxlsx_sidebar", "XLSX", class = "btn-outline-secondary w-100 mb-2"),
              downloadButton("downloaddocx_sidebar", "DOCX", class = "btn-outline-secondary w-100")),
         card(card_header("Habitat Areas"),
+             tags$div(
+               class = "d-flex gap-2 mb-2",
+               actionLink("all_habitats_sidebar", "Select All", class = "bulk-action-link"),
+               tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+               actionLink("none_habitats_sidebar", "Deselect All", class = "bulk-action-link")
+             ),
              checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
         # FIXED: Moved directly into the static UI sidebar container
         card(card_header("Basins/Oceans"), 
-             checkboxGroupInput("checkBasins_sidebar", label = NULL, choices = Unique_Basins)),
+             tags$div(
+               class = "d-flex gap-2 mb-2",
+               actionLink("all_basins_sidebar", "Select All", class = "bulk-action-link"),
+               tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+               actionLink("none_basins_sidebar", "Deselect All", class = "bulk-action-link")
+             ),
+             checkboxGroupInput("checkBasins_sidebar", label = NULL, choices = Unique_Basins, selected = Unique_Basins)),
         conditionalPanel(condition = "input.ByStressors == true",
                          card(card_header("Stressors"), checkboxGroupInput("checkStressors", NULL, choices = Stressors))),
-        card(card_header("Critical Habitats"), checkboxGroupInput("checkSpecies", NULL, choices = Global_Species_List))
+        card(card_header("Critical Habitats"),
+             tags$div(
+               class = "d-flex gap-2 mb-2",
+               actionLink("all_spp_sidebar", "Select All", class = "bulk-action-link"),
+               tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
+               actionLink("none_spp_sidebar", "Deselect All", class = "bulk-action-link")
+             ),
+             checkboxGroupInput("checkSpecies", NULL, choices = Global_Species_List, selected = Global_Species_List))
       ),
       card(full_screen = TRUE, uiOutput("main_tabs"))
     )
@@ -129,6 +165,8 @@ ui <- page_fillable(
 
 # Server Logic ----
 server <- function(input, output, session) { 
+  
+  is_first_run <- reactiveVal(TRUE)
   
   locked_selections <- reactiveValues(
     species = NULL,
@@ -182,7 +220,13 @@ server <- function(input, output, session) {
     updated_choices <- unique(df$Species)
     
     # Retain already selected checkmarks if they remain valid under the new basin/habitat bounds
-    still_checked <- intersect(input$checkSpecies_init, updated_choices)
+    # On initial startup, default to selecting all available critical habitats
+    still_checked <- if (is_first_run()) {
+      is_first_run(FALSE)
+      updated_choices
+    } else {
+      intersect(input$checkSpecies_init, updated_choices)
+    }
     
     updateCheckboxGroupInput(
       session, 
@@ -192,7 +236,21 @@ server <- function(input, output, session) {
     )
   }, ignoreInit = FALSE)
   
-  # Bulk action to Select All visible species inside the card
+  # Bulk actions for Initial UI filters
+  observeEvent(input$all_habitats_init, {
+    updateCheckboxGroupInput(session, "checkHabitats_init", selected = Habitat_Types)
+  })
+  observeEvent(input$none_habitats_init, {
+    updateCheckboxGroupInput(session, "checkHabitats_init", selected = character(0))
+  })
+  
+  observeEvent(input$all_basins_init, {
+    updateCheckboxGroupInput(session, "checkBasins_init", selected = Unique_Basins)
+  })
+  observeEvent(input$none_basins_init, {
+    updateCheckboxGroupInput(session, "checkBasins_init", selected = character(0))
+  })
+  
   observeEvent(input$all_spp, {
     df <- PBFs
     hab_selection <- input$checkHabitats_init
@@ -212,6 +270,31 @@ server <- function(input, output, session) {
     df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
     
     updateCheckboxGroupInput(session, "checkSpecies_init", selected = unique(df$Species))
+  })
+  observeEvent(input$none_spp, {
+    updateCheckboxGroupInput(session, "checkSpecies_init", selected = character(0))
+  })
+  
+  # Bulk actions for Sidebar filters
+  observeEvent(input$all_habitats_sidebar, {
+    updateCheckboxGroupInput(session, "checkHabitats", selected = Habitat_Types)
+  })
+  observeEvent(input$none_habitats_sidebar, {
+    updateCheckboxGroupInput(session, "checkHabitats", selected = character(0))
+  })
+  
+  observeEvent(input$all_basins_sidebar, {
+    updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = Unique_Basins)
+  })
+  observeEvent(input$none_basins_sidebar, {
+    updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = character(0))
+  })
+  
+  observeEvent(input$all_spp_sidebar, {
+    updateCheckboxGroupInput(session, "checkSpecies", selected = Global_Species_List)
+  })
+  observeEvent(input$none_spp_sidebar, {
+    updateCheckboxGroupInput(session, "checkSpecies", selected = character(0))
   })
   
   target_pbf_col <- reactive({ "PBF" })
