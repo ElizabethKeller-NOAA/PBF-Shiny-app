@@ -100,9 +100,10 @@ make_stressor_ui_blocks <- function(prefix = "init") {
 ui <- page_fillable(
   tags$head(
     tags$style(HTML("
-      [data-display-if='!input.preview || input.preview == 0'] .selection-card,
-      [data-display-if='input.preview == 0'] .selection-card { height: 600px !important; }
-      [data-display-if='input.preview > 0'] .card { height: 100% !important; }
+      .stage1-panel .selection-card,
+      [data-display-if='(input.preview || 0) <= (input.back_to_config || 0)'] .selection-card { height: 600px !important; }
+      .stage2-panel .card,
+      [data-display-if='(input.preview || 0) > (input.back_to_config || 0)'] .card { height: 100% !important; }
       
       .shiny-input-checkboxgroup .checkbox label,
       .shiny-input-checkboxgroup .form-check { 
@@ -259,6 +260,9 @@ ui <- page_fillable(
           setTimeout(updatePreviewButtonState, 30);
         }
       });
+      $(document).on('click', '#back_to_config', function() {
+        setTimeout(updatePreviewButtonState, 100);
+      });
       $(document).ready(function() {
         setTimeout(updatePreviewButtonState, 150);
       });
@@ -266,7 +270,8 @@ ui <- page_fillable(
   ),
   
   conditionalPanel(
-    condition = "!input.preview || input.preview == 0",
+    condition = "(input.preview || 0) <= (input.back_to_config || 0)",
+    class = "stage1-panel",
     layout_columns(
       col_widths = c(3, 3, 3, 3), 
       card(
@@ -339,11 +344,20 @@ ui <- page_fillable(
   ),
   
   conditionalPanel(
-    condition = "input.preview > 0",
+    condition = "(input.preview || 0) > (input.back_to_config || 0)",
+    class = "stage2-panel",
     layout_sidebar(
       fillable = TRUE, 
       sidebar = sidebar(
         width = 400,
+        card(
+          actionButton(
+            "back_to_config", 
+            "← Back to Selection", 
+            class = "btn-outline-primary w-100", 
+            style = "font-weight: 600; font-size: 1rem; padding: 8px 12px;"
+          )
+        ),
         card(card_header("Downloads"),
              downloadButton("downloadxlsx_sidebar", "XLSX", class = "btn-outline-secondary w-100 mb-2"),
              downloadButton("downloaddocx_sidebar", "DOCX", class = "btn-outline-secondary w-100")),
@@ -405,6 +419,13 @@ server <- function(input, output, session) {
   
   is_first_run <- reactiveVal(TRUE)
   
+  # Tracks whether the user is currently viewing the Stage 2 tables UI
+  is_in_stage2 <- reactive({
+    p <- if (is.null(input$preview)) 0 else input$preview
+    b <- if (is.null(input$back_to_config)) 0 else input$back_to_config
+    p > b
+  })
+  
   locked_selections <- reactiveValues(
     species = NULL,
     habitats = NULL,
@@ -429,7 +450,7 @@ server <- function(input, output, session) {
   
   # Aggregator: Gathering Basins
   current_checked_basins <- reactive({
-    if (input$preview == 0) input$checkBasins_init else input$checkBasins_sidebar
+    if (!is_in_stage2()) input$checkBasins_init else input$checkBasins_sidebar
   })
   
   # UI Validation warnings (Initial Stage)
@@ -558,7 +579,7 @@ server <- function(input, output, session) {
   
   # SECOND STAGE (SIDEBAR) UI: Filter species choices when habitats or basins update
   observe({
-    req(input$preview > 0)
+    req(is_in_stage2())
     hab_sel <- input$checkHabitats
     basin_sel <- input$checkBasins_sidebar
     
@@ -586,6 +607,29 @@ server <- function(input, output, session) {
       choices = updated_choices, 
       selected = still_checked
     )
+  })
+  
+  # Back Button: Sync any filters modified in the sidebar back to initial UI inputs
+  observeEvent(input$back_to_config, {
+    # 1. Sync Table Options
+    updateCheckboxInput(session, "BySpecies", value = input$BySpecies_sidebar)
+    updateCheckboxInput(session, "ByStressors", value = input$ByStressors_sidebar)
+    updateCheckboxInput(session, "ByOthers", value = input$ByOthers_sidebar)
+    
+    # 2. Sync Habitat Areas and Basins/Oceans
+    updateCheckboxGroupInput(session, "checkHabitats_init", selected = input$checkHabitats)
+    updateCheckboxGroupInput(session, "checkBasins_init", selected = input$checkBasins_sidebar)
+    
+    # 3. Sync Critical Habitats
+    updateCheckboxGroupInput(session, "checkSpecies_init", selected = input$checkSpecies)
+    
+    # 4. Sync Stressors across category chunks
+    unique_cats <- unique(ui_values$Category)
+    for (cat_name in unique_cats) {
+      init_id <- paste0("checkStressors_init_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      side_id <- paste0("checkStressors_sidebar_chunk_", gsub("[^[:alnum:]]", "_", cat_name))
+      updateCheckboxGroupInput(session, init_id, selected = input[[side_id]])
+    }
   })
   
   # Bulk actions for Initial UI filters
@@ -713,9 +757,9 @@ server <- function(input, output, session) {
   
   # Base Dataset Engine
   base_filtered_data <- reactive({
-    spp_selection <- if(input$preview == 0) locked_selections$species else input$checkSpecies
-    hab_selection <- if(input$preview == 0) locked_selections$habitats else input$checkHabitats
-    basin_sel <- if(input$preview == 0) locked_selections$basins else input$checkBasins_sidebar
+    spp_selection <- if(!is_in_stage2()) locked_selections$species else input$checkSpecies
+    hab_selection <- if(!is_in_stage2()) locked_selections$habitats else input$checkHabitats
+    basin_sel <- if(!is_in_stage2()) locked_selections$basins else input$checkBasins_sidebar
     col <- target_pbf_col()
     
     validate(
@@ -758,7 +802,7 @@ server <- function(input, output, session) {
     col <- target_pbf_col()
     df <- base_filtered_data()
     req(col %in% colnames(df))
-    st_sel <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
+    st_sel <- if(!is_in_stage2()) locked_selections$stressors else current_checked_stressors_sidebar()
     if (is.null(st_sel) || length(st_sel) == 0) return(df[, c("Species", "PBF_category", col)])
     valid_cols <- intersect(st_sel, colnames(df))
     if (length(valid_cols) == 0) return(df[, c("Species", "PBF_category", col)])
@@ -768,10 +812,10 @@ server <- function(input, output, session) {
   }
   
   output$main_tabs <- renderUI({
-    req(input$preview > 0)
-    by_spp <- if (input$preview == 0) input$BySpecies else input$BySpecies_sidebar
-    by_stressors <- if (input$preview == 0) input$ByStressors else input$ByStressors_sidebar
-    by_others <- if (input$preview == 0) input$ByOthers else input$ByOthers_sidebar
+    req(is_in_stage2())
+    by_spp <- if (!is_in_stage2()) input$BySpecies else input$BySpecies_sidebar
+    by_stressors <- if (!is_in_stage2()) input$ByStressors else input$ByStressors_sidebar
+    by_others <- if (!is_in_stage2()) input$ByOthers else input$ByOthers_sidebar
     
     req(isTRUE(by_spp) | isTRUE(by_stressors) | isTRUE(by_others))
     tabs <- list()
@@ -779,7 +823,7 @@ server <- function(input, output, session) {
       tabs <- append(tabs, list(nav_panel("Combined Species", DT::dataTableOutput("PBFtable_BySpecies"))))
     }
     
-    st_active <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
+    st_active <- if(!is_in_stage2()) locked_selections$stressors else current_checked_stressors_sidebar()
     if (isTRUE(by_stressors) && !is.null(st_active) && length(st_active) > 0) {
       st_tabs <- lapply(st_active, function(st) {
         id <- paste0("table_", gsub("[^[:alnum:]]", "_", st))
@@ -811,7 +855,7 @@ server <- function(input, output, session) {
       by_spp <- if (input$preview == 0) input$BySpecies else input$BySpecies_sidebar
       by_stressors <- if (input$preview == 0) input$ByStressors else input$ByStressors_sidebar
       by_others <- if (input$preview == 0) input$ByOthers else input$ByOthers_sidebar
-      st_active <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
+      st_active <- if(!is_in_stage2()) locked_selections$stressors else current_checked_stressors_sidebar()
       
       out <- list()
       col <- target_pbf_col()
@@ -835,7 +879,7 @@ server <- function(input, output, session) {
       by_spp <- if (input$preview == 0) input$BySpecies else input$BySpecies_sidebar
       by_stressors <- if (input$preview == 0) input$ByStressors else input$ByStressors_sidebar
       by_others <- if (input$preview == 0) input$ByOthers else input$ByOthers_sidebar
-      st_active <- if(input$preview == 0) locked_selections$stressors else current_checked_stressors_sidebar()
+      st_active <- if(!is_in_stage2()) locked_selections$stressors else current_checked_stressors_sidebar()
       
       final_list <- list()
       col <- target_pbf_col()
