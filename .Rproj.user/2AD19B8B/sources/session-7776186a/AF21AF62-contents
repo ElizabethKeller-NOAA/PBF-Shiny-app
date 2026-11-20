@@ -36,6 +36,40 @@ PBFs <- PBFs[order(PBFs$Species), ]
 Habitat_Types <- c("Freshwater", "Estuarine", "Marine", "Land")
 Global_Species_List <- unique(PBFs$Species)
 
+# Robust helper function to filter PBF dataset by Habitat Areas and Basins/Oceans
+# Safely handles empty/NULL selections and 0-row subsets without subscript errors
+filter_pbf_by_hab_basin <- function(df, hab_selection, basin_sel) {
+  if (is.null(df) || nrow(df) == 0) return(df[0, ])
+  
+  # 1. Habitat Areas
+  if (is.null(hab_selection) || length(hab_selection) == 0) {
+    return(df[0, ])
+  }
+  valid_habs <- intersect(hab_selection, colnames(df))
+  if (length(valid_habs) == 0) {
+    return(df[0, ])
+  }
+  hab_mat <- df[, valid_habs, drop = FALSE]
+  habitat_logical <- rowSums(hab_mat == 1, na.rm = TRUE) > 0
+  df <- df[habitat_logical, ]
+  
+  if (nrow(df) == 0) return(df[0, ])
+  
+  # 2. Basins/Oceans
+  if (is.null(basin_sel) || length(basin_sel) == 0) {
+    return(df[0, ])
+  }
+  basin_match <- vapply(df$basin_ocean, function(row_val) {
+    if (is.na(row_val) || row_val == "") return(FALSE)
+    any(vapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE), FUN.VALUE = logical(1)))
+  }, FUN.VALUE = logical(1))
+  df <- df[basin_match, ]
+  
+  # 3. Strip exclusion criteria rows globally
+  df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
+  return(df)
+}
+
 # Helper function to generate categorized stressor checkbox blocks
 make_stressor_ui_blocks <- function(prefix = "init") {
   unique_cats <- unique(ui_values$Category)
@@ -66,8 +100,10 @@ make_stressor_ui_blocks <- function(prefix = "init") {
 ui <- page_fillable(
   tags$head(
     tags$style(HTML("
+      [data-display-if='!input.preview || input.preview == 0'] .selection-card,
       [data-display-if='input.preview == 0'] .selection-card { height: 600px !important; }
       [data-display-if='input.preview > 0'] .card { height: 100% !important; }
+      
       .shiny-input-checkboxgroup .checkbox label,
       .shiny-input-checkboxgroup .form-check { 
         display: flex !important; 
@@ -87,6 +123,7 @@ ui <- page_fillable(
         white-space: normal !important; 
         margin-left: 10px !important; 
       }
+      
       /* Bulk action bar (Select All / Deselect All) */
       .bulk-action-bar {
         margin-top: 0 !important;
@@ -165,11 +202,59 @@ ui <- page_fillable(
         margin-top: 1px !important;
         margin-bottom: 2px !important;
       }
+      
+      /* Inline validation text */
+      .validation-warning {
+        color: #dc3545;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-top: 3px;
+        line-height: 1.2;
+      }
+      .validation-info {
+        color: #6c757d;
+        font-size: 0.82rem;
+        font-style: italic;
+        margin-top: 5px;
+      }
+      
+      /* Habitats selected count in card header */
+      #spp_count_init, #spp_count_sidebar {
+        font-weight: normal;
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-left: 4px;
+      }
+    ")),
+    tags$script(HTML("
+      // Client-side guard: Disables preview button if Habitats, Basins, or Critical Habitats has 0 selections
+      function updatePreviewButtonState() {
+        var habs = $('input[name=\"checkHabitats_init\"]:checked').length;
+        var basins = $('input[name=\"checkBasins_init\"]:checked').length;
+        var spp = $('input[name=\"checkSpecies_init\"]:checked').length;
+        var btn = $('#preview');
+        if (habs === 0 || basins === 0 || spp === 0) {
+          btn.prop('disabled', true).addClass('disabled').css({'cursor': 'not-allowed', 'opacity': '0.65'});
+        } else {
+          btn.prop('disabled', false).removeClass('disabled').css({'cursor': 'pointer', 'opacity': '1'});
+        }
+      }
+      $(document).on('change', 'input[name=\"checkHabitats_init\"], input[name=\"checkBasins_init\"], input[name=\"checkSpecies_init\"]', function() {
+        setTimeout(updatePreviewButtonState, 30);
+      });
+      $(document).on('shiny:inputchanged shiny:value', function(e) {
+        if (e.name === 'checkHabitats_init' || e.name === 'checkBasins_init' || e.name === 'checkSpecies_init') {
+          setTimeout(updatePreviewButtonState, 30);
+        }
+      });
+      $(document).ready(function() {
+        setTimeout(updatePreviewButtonState, 150);
+      });
     "))
   ),
   
   conditionalPanel(
-    condition = "input.preview == 0",
+    condition = "!input.preview || input.preview == 0",
     layout_columns(
       col_widths = c(3, 3, 3, 3), 
       card(
@@ -187,7 +272,8 @@ ui <- page_fillable(
           actionLink("none_habitats_init", "Deselect All", class = "bulk-action-link")
         ),
         checkboxGroupInput("checkHabitats_init", label = NULL, 
-                           choices = Habitat_Types, selected = Habitat_Types)
+                           choices = Habitat_Types, selected = Habitat_Types),
+        uiOutput("hab_warn_init")
       ),
       card(
         card_header("Basins/Oceans"),
@@ -197,13 +283,15 @@ ui <- page_fillable(
           tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
           actionLink("none_basins_init", "Deselect All", class = "bulk-action-link")
         ),
-        checkboxGroupInput("checkBasins_init", label = NULL, choices = Unique_Basins, selected = Unique_Basins)
+        checkboxGroupInput("checkBasins_init", label = NULL, choices = Unique_Basins, selected = Unique_Basins),
+        uiOutput("basin_warn_init")
       ),
       layout_columns(
         col_widths = 12,
         card(
           card_header("Preview"),
-          actionButton("preview", "View Table(s) Now", class = "btn-primary w-100 h-100", style = "font-size: 1.1rem;")
+          actionButton("preview", "View Table(s) Now", class = "btn-primary w-100 h-100", style = "font-size: 1.1rem;"),
+          uiOutput("preview_guard_msg")
         )
       )
     ),
@@ -212,13 +300,14 @@ ui <- page_fillable(
       card(
         class = "selection-card", 
         style = "overflow-y: auto; padding-top: 10px;", 
-        card_header("Choose Critical Habitats"),
+        card_header("Choose Critical Habitats ", textOutput("spp_count_init", inline = TRUE)),
         tags$div(
           class = "bulk-action-bar d-flex gap-2 align-items-center",
           actionLink("all_spp", "Select All Visible", class = "bulk-action-link"),
           tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
           actionLink("none_spp", "Deselect All", class = "bulk-action-link")
         ),
+        uiOutput("spp_warn_init"),
         checkboxGroupInput("checkSpecies_init", label = NULL, choices = Global_Species_List, selected = Global_Species_List)
       ),
       conditionalPanel(
@@ -261,7 +350,8 @@ ui <- page_fillable(
                tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
                actionLink("none_habitats_sidebar", "Deselect All", class = "bulk-action-link")
              ),
-             checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types)),
+             checkboxGroupInput("checkHabitats", NULL, choices = Habitat_Types, selected = Habitat_Types),
+             uiOutput("hab_warn_sidebar")),
         card(card_header("Basins/Oceans"), 
              tags$div(
                class = "bulk-action-bar d-flex gap-2 align-items-center",
@@ -269,7 +359,8 @@ ui <- page_fillable(
                tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
                actionLink("none_basins_sidebar", "Deselect All", class = "bulk-action-link")
              ),
-             checkboxGroupInput("checkBasins_sidebar", label = NULL, choices = Unique_Basins, selected = Unique_Basins)),
+             checkboxGroupInput("checkBasins_sidebar", label = NULL, choices = Unique_Basins, selected = Unique_Basins),
+             uiOutput("basin_warn_sidebar")),
         conditionalPanel(
           condition = "input.ByStressors_sidebar == true",
           card(
@@ -284,13 +375,14 @@ ui <- page_fillable(
             tagList(make_stressor_ui_blocks("sidebar"))
           )
         ),
-        card(card_header("Critical Habitats"),
+        card(card_header("Critical Habitats ", textOutput("spp_count_sidebar", inline = TRUE)),
              tags$div(
                class = "bulk-action-bar d-flex gap-2 align-items-center",
                actionLink("all_spp_sidebar", "Select All Visible", class = "bulk-action-link"),
                tags$span("|", style = "font-size: 0.8rem; color: #6c757d;"),
                actionLink("none_spp_sidebar", "Deselect All", class = "bulk-action-link")
              ),
+             uiOutput("spp_warn_sidebar"),
              checkboxGroupInput("checkSpecies", NULL, choices = Global_Species_List, selected = Global_Species_List))
       ),
       card(full_screen = TRUE, uiOutput("main_tabs"))
@@ -330,41 +422,90 @@ server <- function(input, output, session) {
     if (input$preview == 0) input$checkBasins_init else input$checkBasins_sidebar
   })
   
-  # INITIAL UI: Filter species choices when habitats or basins update
-  observeEvent({
-    input$checkHabitats_init
-    input$checkBasins_init
-  }, {
-    df <- PBFs
-    
-    # 1. Filter by Habitat Areas
-    hab_selection <- input$checkHabitats_init
-    if (!is.null(hab_selection) && length(hab_selection) > 0) {
-      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
-      df <- df[habitat_logical, ]
-    } else {
-      df <- df[0, ]
+  # UI Validation warnings (Initial Stage)
+  output$hab_warn_init <- renderUI({
+    if (is.null(input$checkHabitats_init) || length(input$checkHabitats_init) == 0) {
+      tags$div(class = "validation-warning", "⚠️ You must choose at least one Habitat Area.")
     }
+  })
+  
+  output$basin_warn_init <- renderUI({
+    if (is.null(input$checkBasins_init) || length(input$checkBasins_init) == 0) {
+      tags$div(class = "validation-warning", "⚠️ You must choose at least one Basin/Ocean.")
+    }
+  })
+  
+  output$spp_warn_init <- renderUI({
+    hab_empty <- is.null(input$checkHabitats_init) || length(input$checkHabitats_init) == 0
+    basin_empty <- is.null(input$checkBasins_init) || length(input$checkBasins_init) == 0
+    if (hab_empty || basin_empty) {
+      tags$div(class = "validation-info", "No critical habitats match. Please select at least one Habitat Area and Basin/Ocean.")
+    } else if (is.null(input$checkSpecies_init) || length(input$checkSpecies_init) == 0) {
+      tags$div(class = "validation-warning", "⚠️ You must choose at least one Critical Habitat.")
+    }
+  })
+  
+  # Dynamic counts in card headers
+  output$spp_count_init <- renderText({
+    n <- if (is.null(input$checkSpecies_init)) 0 else length(input$checkSpecies_init)
+    paste0("(", n, if (n == 1) " Habitat Selected)" else " Habitats Selected)")
+  })
+  
+  output$spp_count_sidebar <- renderText({
+    n <- if (is.null(input$checkSpecies)) 0 else length(input$checkSpecies)
+    paste0("(", n, if (n == 1) " Habitat Selected)" else " Habitats Selected)")
+  })
+  
+  # Inline warning directly under the Preview button
+  output$preview_guard_msg <- renderUI({
+    hab_empty <- is.null(input$checkHabitats_init) || length(input$checkHabitats_init) == 0
+    basin_empty <- is.null(input$checkBasins_init) || length(input$checkBasins_init) == 0
+    spp_empty <- is.null(input$checkSpecies_init) || length(input$checkSpecies_init) == 0
     
-    # 2. Filter by Basins/Oceans
+    if (hab_empty || basin_empty || spp_empty) {
+      missing <- c()
+      if (hab_empty) missing <- c(missing, "Habitat Area")
+      if (basin_empty) missing <- c(missing, "Basin/Ocean")
+      if (spp_empty) missing <- c(missing, "Critical Habitat")
+      tags$div(
+        class = "validation-warning text-center mt-2",
+        paste0("⚠️ Choose at least 1 ", paste(missing, collapse = ", "), " to proceed")
+      )
+    }
+  })
+  
+  # UI Validation warnings (Sidebar Stage)
+  output$hab_warn_sidebar <- renderUI({
+    if (is.null(input$checkHabitats) || length(input$checkHabitats) == 0) {
+      tags$div(class = "validation-warning", "⚠️ You must choose at least one Habitat Area.")
+    }
+  })
+  
+  output$basin_warn_sidebar <- renderUI({
+    if (is.null(input$checkBasins_sidebar) || length(input$checkBasins_sidebar) == 0) {
+      tags$div(class = "validation-warning", "⚠️ You must choose at least one Basin/Ocean.")
+    }
+  })
+  
+  output$spp_warn_sidebar <- renderUI({
+    hab_empty <- is.null(input$checkHabitats) || length(input$checkHabitats) == 0
+    basin_empty <- is.null(input$checkBasins_sidebar) || length(input$checkBasins_sidebar) == 0
+    if (hab_empty || basin_empty) {
+      tags$div(class = "validation-info", "No critical habitats match. Please select at least one Habitat Area and Basin/Ocean.")
+    } else if (is.null(input$checkSpecies) || length(input$checkSpecies) == 0) {
+      tags$div(class = "validation-warning", "⚠️ You must choose at least one Critical Habitat.")
+    }
+  })
+  
+  # INITIAL UI: Filter species choices whenever habitats or basins update
+  # Uses observe() to ensure execution whenever ANY dependency updates (no ignoreNULL issues)
+  observe({
+    hab_sel <- input$checkHabitats_init
     basin_sel <- input$checkBasins_init
-    if (!is.null(basin_sel) && length(basin_sel) > 0) {
-      basin_match <- sapply(df$basin_ocean, function(row_val) {
-        if (is.na(row_val) || row_val == "") return(FALSE)
-        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
-      })
-      df <- df[basin_match, ]
-    } else {
-      df <- df[0, ]
-    }
     
-    # 3. Strip exclusion criteria rows globally
-    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
+    df <- filter_pbf_by_hab_basin(PBFs, hab_sel, basin_sel)
+    updated_choices <- as.character(unique(df$Species))
     
-    updated_choices <- unique(df$Species)
-    
-    # Retain already selected checkmarks if they remain valid under the new basin/habitat bounds
-    # On initial startup, default to selecting all available critical habitats
     still_checked <- if (is_first_run()) {
       is_first_run(FALSE)
       updated_choices
@@ -378,41 +519,16 @@ server <- function(input, output, session) {
       choices = updated_choices, 
       selected = still_checked
     )
-  }, ignoreInit = FALSE)
-
+  })
+  
   # SECOND STAGE (SIDEBAR) UI: Filter species choices when habitats or basins update
-  observeEvent({
-    input$checkHabitats
-    input$checkBasins_sidebar
-  }, {
+  observe({
     req(input$preview > 0)
-    df <- PBFs
-    
-    # 1. Filter by Habitat Areas
-    hab_selection <- input$checkHabitats
-    if (!is.null(hab_selection) && length(hab_selection) > 0) {
-      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
-      df <- df[habitat_logical, ]
-    } else {
-      df <- df[0, ]
-    }
-    
-    # 2. Filter by Basins/Oceans
+    hab_sel <- input$checkHabitats
     basin_sel <- input$checkBasins_sidebar
-    if (!is.null(basin_sel) && length(basin_sel) > 0) {
-      basin_match <- sapply(df$basin_ocean, function(row_val) {
-        if (is.na(row_val) || row_val == "") return(FALSE)
-        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
-      })
-      df <- df[basin_match, ]
-    } else {
-      df <- df[0, ]
-    }
     
-    # 3. Strip exclusion criteria rows globally
-    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
-    
-    updated_choices <- unique(df$Species)
+    df <- filter_pbf_by_hab_basin(PBFs, hab_sel, basin_sel)
+    updated_choices <- as.character(unique(df$Species))
     still_checked <- intersect(input$checkSpecies, updated_choices)
     
     updateCheckboxGroupInput(
@@ -421,7 +537,7 @@ server <- function(input, output, session) {
       choices = updated_choices, 
       selected = still_checked
     )
-  }, ignoreInit = TRUE)
+  })
   
   # Bulk actions for Initial UI filters
   observeEvent(input$all_habitats_init, {
@@ -430,14 +546,14 @@ server <- function(input, output, session) {
   observeEvent(input$none_habitats_init, {
     updateCheckboxGroupInput(session, "checkHabitats_init", selected = character(0))
   })
-
+  
   observeEvent(input$all_basins_init, {
     updateCheckboxGroupInput(session, "checkBasins_init", selected = Unique_Basins)
   })
   observeEvent(input$none_basins_init, {
     updateCheckboxGroupInput(session, "checkBasins_init", selected = character(0))
   })
-
+  
   observeEvent(input$all_stressors_init, {
     unique_cats <- unique(ui_values$Category)
     for (cat_name in unique_cats) {
@@ -453,31 +569,15 @@ server <- function(input, output, session) {
       updateCheckboxGroupInput(session, init_id, selected = character(0))
     }
   })
-
+  
   observeEvent(input$all_spp, {
-    df <- PBFs
-    hab_selection <- input$checkHabitats_init
-    if (!is.null(hab_selection) && length(hab_selection) > 0) {
-      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
-      df <- df[habitat_logical, ]
-    } else { df <- df[0, ] }
-    
-    basin_sel <- input$checkBasins_init
-    if (!is.null(basin_sel) && length(basin_sel) > 0) {
-      basin_match <- sapply(df$basin_ocean, function(row_val) {
-        if (is.na(row_val) || row_val == "") return(FALSE)
-        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
-      })
-      df <- df[basin_match, ]
-    } else { df <- df[0, ] }
-    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
-    
-    updateCheckboxGroupInput(session, "checkSpecies_init", selected = unique(df$Species))
+    df <- filter_pbf_by_hab_basin(PBFs, input$checkHabitats_init, input$checkBasins_init)
+    updateCheckboxGroupInput(session, "checkSpecies_init", selected = as.character(unique(df$Species)))
   })
   observeEvent(input$none_spp, {
     updateCheckboxGroupInput(session, "checkSpecies_init", selected = character(0))
   })
-
+  
   # Bulk actions for Sidebar filters
   observeEvent(input$all_habitats_sidebar, {
     updateCheckboxGroupInput(session, "checkHabitats", selected = Habitat_Types)
@@ -485,14 +585,14 @@ server <- function(input, output, session) {
   observeEvent(input$none_habitats_sidebar, {
     updateCheckboxGroupInput(session, "checkHabitats", selected = character(0))
   })
-
+  
   observeEvent(input$all_basins_sidebar, {
     updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = Unique_Basins)
   })
   observeEvent(input$none_basins_sidebar, {
     updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = character(0))
   })
-
+  
   observeEvent(input$all_stressors_sidebar, {
     unique_cats <- unique(ui_values$Category)
     for (cat_name in unique_cats) {
@@ -508,26 +608,10 @@ server <- function(input, output, session) {
       updateCheckboxGroupInput(session, side_id, selected = character(0))
     }
   })
-
+  
   observeEvent(input$all_spp_sidebar, {
-    df <- PBFs
-    hab_selection <- input$checkHabitats
-    if (!is.null(hab_selection) && length(hab_selection) > 0) {
-      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
-      df <- df[habitat_logical, ]
-    } else { df <- df[0, ] }
-    
-    basin_sel <- input$checkBasins_sidebar
-    if (!is.null(basin_sel) && length(basin_sel) > 0) {
-      basin_match <- sapply(df$basin_ocean, function(row_val) {
-        if (is.na(row_val) || row_val == "") return(FALSE)
-        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
-      })
-      df <- df[basin_match, ]
-    } else { df <- df[0, ] }
-    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
-    
-    updateCheckboxGroupInput(session, "checkSpecies", selected = unique(df$Species))
+    df <- filter_pbf_by_hab_basin(PBFs, input$checkHabitats, input$checkBasins_sidebar)
+    updateCheckboxGroupInput(session, "checkSpecies", selected = as.character(unique(df$Species)))
   })
   observeEvent(input$none_spp_sidebar, {
     updateCheckboxGroupInput(session, "checkSpecies", selected = character(0))
@@ -537,9 +621,21 @@ server <- function(input, output, session) {
   
   # Lock in snapshots when preview is pressed
   observeEvent(input$preview, {
-    locked_selections$species <- input$checkSpecies_init
-    locked_selections$habitats <- input$checkHabitats_init
-    locked_selections$basins <- input$checkBasins_init
+    hab_sel <- input$checkHabitats_init
+    basin_sel <- input$checkBasins_init
+    spp_sel <- input$checkSpecies_init
+    
+    # Server-side validation guard
+    if (is.null(hab_sel) || length(hab_sel) == 0 || 
+        is.null(basin_sel) || length(basin_sel) == 0 || 
+        is.null(spp_sel) || length(spp_sel) == 0) {
+      showNotification("⚠️ You must select at least one Habitat Area, Basin/Ocean, and Critical Habitat before proceeding.", type = "error")
+      return()
+    }
+    
+    locked_selections$species <- spp_sel
+    locked_selections$habitats <- hab_sel
+    locked_selections$basins <- basin_sel
     locked_selections$stressors <- current_checked_stressors()
     
     # Sync Table Options to sidebar
@@ -552,20 +648,8 @@ server <- function(input, output, session) {
     updateCheckboxGroupInput(session, "checkBasins_sidebar", selected = locked_selections$basins)
     
     # Sync filtered species choices and selection to sidebar
-    df_init <- PBFs
-    if (!is.null(locked_selections$habitats) && length(locked_selections$habitats) > 0) {
-      habitat_logical <- rowSums(df_init[, locked_selections$habitats, drop = FALSE] == 1, na.rm = TRUE) > 0
-      df_init <- df_init[habitat_logical, ]
-    } else { df_init <- df_init[0, ] }
-    if (!is.null(locked_selections$basins) && length(locked_selections$basins) > 0) {
-      basin_match <- sapply(df_init$basin_ocean, function(row_val) {
-        if (is.na(row_val) || row_val == "") return(FALSE)
-        any(sapply(locked_selections$basins, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
-      })
-      df_init <- df_init[basin_match, ]
-    } else { df_init <- df_init[0, ] }
-    df_init <- df_init[is.na(df_init$Area_Designated_Yes_No) | df_init$Area_Designated_Yes_No != 0, ]
-    valid_choices <- unique(df_init$Species)
+    df_init <- filter_pbf_by_hab_basin(PBFs, locked_selections$habitats, locked_selections$basins)
+    valid_choices <- as.character(unique(df_init$Species))
     still_checked <- intersect(locked_selections$species, valid_choices)
     updateCheckboxGroupInput(session, "checkSpecies", choices = valid_choices, selected = still_checked)
     
@@ -585,26 +669,16 @@ server <- function(input, output, session) {
     basin_sel <- if(input$preview == 0) locked_selections$basins else input$checkBasins_sidebar
     col <- target_pbf_col()
     
-    req(spp_selection, length(spp_selection) > 0)
+    validate(
+      need(length(hab_selection) > 0, "Please select at least one Habitat Area to display PBF tables."),
+      need(length(basin_sel) > 0, "Please select at least one Basin/Ocean to display PBF tables."),
+      need(length(spp_selection) > 0, "Please select at least one Critical Habitat to display PBF tables.")
+    )
     
     df <- PBFs[PBFs$Species %in% spp_selection, ]
-    
-    if (!is.null(hab_selection) && length(hab_selection) > 0) {
-      habitat_logical <- rowSums(df[, hab_selection, drop = FALSE] == 1, na.rm = TRUE) > 0
-      df <- df[habitat_logical, ]
-    } else { return(df[0, ]) }
-    
-    if (!is.null(basin_sel) && length(basin_sel) > 0) {
-      basin_match <- sapply(df$basin_ocean, function(row_val) {
-        if (is.na(row_val) || row_val == "") return(FALSE)
-        any(sapply(basin_sel, function(b) grepl(paste0("\\b", b, "\\b"), row_val, ignore.case = TRUE)))
-      })
-      df <- df[basin_match, ]
-    } else { return(df[0, ]) }
+    df <- filter_pbf_by_hab_basin(df, hab_selection, basin_sel)
     
     df <- df[!is.na(df[[col]]) & trimws(df[[col]]) != "", ]
-    df <- df[is.na(df$Area_Designated_Yes_No) | df$Area_Designated_Yes_No != 0, ]
-    
     return(df)
   })
   
