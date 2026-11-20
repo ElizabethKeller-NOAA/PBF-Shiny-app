@@ -225,6 +225,18 @@ ui <- page_fillable(
         color: #6c757d;
         margin-left: 4px;
       }
+      
+      /* Preview card styling: comfortable button height, centered, no scroll bar */
+      .preview-card .card-body {
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        overflow: hidden !important;
+      }
+      #preview {
+        height: auto !important;
+        min-height: 44px !important;
+      }
     ")),
     tags$script(HTML("
       // Client-side guard: Disables preview button if Habitats, Basins, or Critical Habitats has 0 selections
@@ -286,13 +298,11 @@ ui <- page_fillable(
         checkboxGroupInput("checkBasins_init", label = NULL, choices = Unique_Basins, selected = Unique_Basins),
         uiOutput("basin_warn_init")
       ),
-      layout_columns(
-        col_widths = 12,
-        card(
-          card_header("Preview"),
-          actionButton("preview", "View Table(s) Now", class = "btn-primary w-100 h-100", style = "font-size: 1.1rem;"),
-          uiOutput("preview_guard_msg")
-        )
+      card(
+        class = "preview-card",
+        card_header("Preview"),
+        actionButton("preview", "View Table(s) Now", class = "btn-primary w-100", style = "font-size: 1.05rem; padding: 10px 14px;"),
+        uiOutput("preview_guard_msg")
       )
     ),
     layout_columns(
