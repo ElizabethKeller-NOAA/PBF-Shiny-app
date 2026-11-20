@@ -507,6 +507,10 @@ server <- function(input, output, session) {
     }
   })
   
+  # Track previous choices to detect when species are removed due to habitat/basin filtering
+  prev_choices_init <- reactiveVal(NULL)
+  prev_choices_sidebar <- reactiveVal(NULL)
+  
   # INITIAL UI: Filter species choices whenever habitats or basins update
   # Uses observe() to ensure execution whenever ANY dependency updates (no ignoreNULL issues)
   observe({
@@ -516,19 +520,40 @@ server <- function(input, output, session) {
     df <- filter_pbf_by_hab_basin(PBFs, hab_sel, basin_sel)
     updated_choices <- as.character(unique(df$Species))
     
-    still_checked <- if (is_first_run()) {
+    if (is_first_run()) {
       is_first_run(FALSE)
-      updated_choices
+      prev_choices_init(updated_choices)
+      updateCheckboxGroupInput(
+        session, 
+        "checkSpecies_init", 
+        choices = updated_choices, 
+        selected = updated_choices
+      )
     } else {
-      intersect(input$checkSpecies_init, updated_choices)
+      current_checked <- input$checkSpecies_init
+      still_checked <- intersect(current_checked, updated_choices)
+      
+      # Determine if any actively checked critical habitats were dropped because of the filter change
+      dropped <- setdiff(current_checked, updated_choices)
+      if (length(dropped) > 0) {
+        msg <- if (length(dropped) == 1) {
+          paste0("ℹ️ Critical Habitat deselected (not present in selected Habitat Areas/Basins): ", dropped)
+        } else if (length(dropped) <= 3) {
+          paste0("ℹ️ ", length(dropped), " Critical Habitats deselected (not present in selected Habitat Areas/Basins): ", paste(dropped, collapse = ", "))
+        } else {
+          paste0("ℹ️ ", length(dropped), " Critical Habitats deselected (not present in selected Habitat Areas/Basins).")
+        }
+        showNotification(msg, type = "warning", duration = 6)
+      }
+      
+      prev_choices_init(updated_choices)
+      updateCheckboxGroupInput(
+        session, 
+        "checkSpecies_init", 
+        choices = updated_choices, 
+        selected = still_checked
+      )
     }
-    
-    updateCheckboxGroupInput(
-      session, 
-      "checkSpecies_init", 
-      choices = updated_choices, 
-      selected = still_checked
-    )
   })
   
   # SECOND STAGE (SIDEBAR) UI: Filter species choices when habitats or basins update
@@ -539,7 +564,21 @@ server <- function(input, output, session) {
     
     df <- filter_pbf_by_hab_basin(PBFs, hab_sel, basin_sel)
     updated_choices <- as.character(unique(df$Species))
-    still_checked <- intersect(input$checkSpecies, updated_choices)
+    
+    current_checked <- input$checkSpecies
+    still_checked <- intersect(current_checked, updated_choices)
+    
+    dropped <- setdiff(current_checked, updated_choices)
+    if (length(dropped) > 0) {
+      msg <- if (length(dropped) == 1) {
+        paste0("ℹ️ Critical Habitat deselected (not present in selected Habitat Areas/Basins): ", dropped)
+      } else if (length(dropped) <= 3) {
+        paste0("ℹ️ ", length(dropped), " Critical Habitats deselected (not present in selected Habitat Areas/Basins): ", paste(dropped, collapse = ", "))
+      } else {
+        paste0("ℹ️ ", length(dropped), " Critical Habitats deselected (not present in selected Habitat Areas/Basins).")
+      }
+      showNotification(msg, type = "warning", duration = 6)
+    }
     
     updateCheckboxGroupInput(
       session, 
