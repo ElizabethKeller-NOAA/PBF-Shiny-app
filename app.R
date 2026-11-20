@@ -453,6 +453,17 @@ server <- function(input, output, session) {
     if (!is_in_stage2()) input$checkBasins_init else input$checkBasins_sidebar
   })
   
+  # Reactive helpers for available matching species under current habitat and basin selections
+  available_species_init <- reactive({
+    df <- filter_pbf_by_hab_basin(PBFs, input$checkHabitats_init, input$checkBasins_init)
+    as.character(unique(df$Species))
+  })
+  
+  available_species_sidebar <- reactive({
+    df <- filter_pbf_by_hab_basin(PBFs, input$checkHabitats, input$checkBasins_sidebar)
+    as.character(unique(df$Species))
+  })
+  
   # UI Validation warnings (Initial Stage)
   output$hab_warn_init <- renderUI({
     if (is.null(input$checkHabitats_init) || length(input$checkHabitats_init) == 0) {
@@ -470,37 +481,69 @@ server <- function(input, output, session) {
     hab_empty <- is.null(input$checkHabitats_init) || length(input$checkHabitats_init) == 0
     basin_empty <- is.null(input$checkBasins_init) || length(input$checkBasins_init) == 0
     if (hab_empty || basin_empty) {
-      tags$div(class = "validation-info", "No critical habitats match. Please select at least one Habitat Area and Basin/Ocean.")
-    } else if (is.null(input$checkSpecies_init) || length(input$checkSpecies_init) == 0) {
-      tags$div(class = "validation-warning", "⚠️ You must choose at least one Critical Habitat.")
+      tags$div(class = "validation-info", "Please select at least one Habitat Area and Basin/Ocean.")
+    } else {
+      avail <- available_species_init()
+      if (length(avail) == 0) {
+        tags$div(
+          class = "alert alert-warning p-2 mt-2 mb-2 d-flex align-items-start",
+          style = "font-size: 0.85rem; border-left: 4px solid #ffc107; background-color: #fff3cd; color: #664d03;",
+          tags$div(
+            tags$strong("⚠️ No Critical Habitats Match: "),
+            "There are no critical habitats that occur in the selected combination of Habitat Area(s) and Basin(s)/Ocean(s). Please adjust your selections to include other areas or basins."
+          )
+        )
+      } else if (is.null(input$checkSpecies_init) || length(input$checkSpecies_init) == 0) {
+        tags$div(class = "validation-warning", "⚠️ You must choose at least one Critical Habitat.")
+      }
     }
   })
   
   # Dynamic counts in card headers
   output$spp_count_init <- renderText({
-    n <- if (is.null(input$checkSpecies_init)) 0 else length(input$checkSpecies_init)
-    paste0("(", n, if (n == 1) " Habitat Selected)" else " Habitats Selected)")
+    hab_empty <- is.null(input$checkHabitats_init) || length(input$checkHabitats_init) == 0
+    basin_empty <- is.null(input$checkBasins_init) || length(input$checkBasins_init) == 0
+    if (!hab_empty && !basin_empty && length(available_species_init()) == 0) {
+      "(0 Matching Available)"
+    } else {
+      n <- if (is.null(input$checkSpecies_init)) 0 else length(input$checkSpecies_init)
+      paste0("(", n, if (n == 1) " Habitat Selected)" else " Habitats Selected)")
+    }
   })
   
   output$spp_count_sidebar <- renderText({
-    n <- if (is.null(input$checkSpecies)) 0 else length(input$checkSpecies)
-    paste0("(", n, if (n == 1) " Habitat Selected)" else " Habitats Selected)")
+    hab_empty <- is.null(input$checkHabitats) || length(input$checkHabitats) == 0
+    basin_empty <- is.null(input$checkBasins_sidebar) || length(input$checkBasins_sidebar) == 0
+    if (!hab_empty && !basin_empty && length(available_species_sidebar()) == 0) {
+      "(0 Matching Available)"
+    } else {
+      n <- if (is.null(input$checkSpecies)) 0 else length(input$checkSpecies)
+      paste0("(", n, if (n == 1) " Habitat Selected)" else " Habitats Selected)")
+    }
   })
   
   # Inline warning directly under the Preview button
   output$preview_guard_msg <- renderUI({
     hab_empty <- is.null(input$checkHabitats_init) || length(input$checkHabitats_init) == 0
     basin_empty <- is.null(input$checkBasins_init) || length(input$checkBasins_init) == 0
-    spp_empty <- is.null(input$checkSpecies_init) || length(input$checkSpecies_init) == 0
     
-    if (hab_empty || basin_empty || spp_empty) {
+    if (hab_empty || basin_empty) {
       missing <- c()
       if (hab_empty) missing <- c(missing, "Habitat Area")
       if (basin_empty) missing <- c(missing, "Basin/Ocean")
-      if (spp_empty) missing <- c(missing, "Critical Habitat")
       tags$div(
         class = "validation-warning text-center mt-2",
         paste0("⚠️ Choose at least 1 ", paste(missing, collapse = ", "), " to proceed")
+      )
+    } else if (length(available_species_init()) == 0) {
+      tags$div(
+        class = "validation-warning text-center mt-2",
+        "⚠️ No Critical Habitats match selected Habitat Area(s) and Basin(s)"
+      )
+    } else if (is.null(input$checkSpecies_init) || length(input$checkSpecies_init) == 0) {
+      tags$div(
+        class = "validation-warning text-center mt-2",
+        "⚠️ Choose at least 1 Critical Habitat to proceed"
       )
     }
   })
@@ -522,9 +565,19 @@ server <- function(input, output, session) {
     hab_empty <- is.null(input$checkHabitats) || length(input$checkHabitats) == 0
     basin_empty <- is.null(input$checkBasins_sidebar) || length(input$checkBasins_sidebar) == 0
     if (hab_empty || basin_empty) {
-      tags$div(class = "validation-info", "No critical habitats match. Please select at least one Habitat Area and Basin/Ocean.")
-    } else if (is.null(input$checkSpecies) || length(input$checkSpecies) == 0) {
-      tags$div(class = "validation-warning", "⚠️ You must choose at least one Critical Habitat.")
+      tags$div(class = "validation-info", "Please select at least one Habitat Area and Basin/Ocean.")
+    } else {
+      avail <- available_species_sidebar()
+      if (length(avail) == 0) {
+        tags$div(
+          class = "alert alert-warning p-2 mt-2 mb-2",
+          style = "font-size: 0.82rem; border-left: 4px solid #ffc107; background-color: #fff3cd; color: #664d03;",
+          tags$strong("⚠️ No Critical Habitats Match: "),
+          "None occur in the selected Habitat Area(s) and Basin(s)/Ocean(s)."
+        )
+      } else if (is.null(input$checkSpecies) || length(input$checkSpecies) == 0) {
+        tags$div(class = "validation-warning", "⚠️ You must choose at least one Critical Habitat.")
+      }
     }
   })
   
@@ -565,6 +618,8 @@ server <- function(input, output, session) {
           paste0("ℹ️ ", length(dropped), " Critical Habitats deselected (not present in selected Habitat Areas/Basins).")
         }
         showNotification(msg, type = "warning", duration = 6)
+      } else if (length(updated_choices) == 0 && length(hab_sel) > 0 && length(basin_sel) > 0) {
+        showNotification("⚠️ No Critical Habitats occur in the selected combination of Habitat Areas and Basins/Oceans.", type = "warning", duration = 6)
       }
       
       prev_choices_init(updated_choices)
@@ -599,6 +654,8 @@ server <- function(input, output, session) {
         paste0("ℹ️ ", length(dropped), " Critical Habitats deselected (not present in selected Habitat Areas/Basins).")
       }
       showNotification(msg, type = "warning", duration = 6)
+    } else if (length(updated_choices) == 0 && length(hab_sel) > 0 && length(basin_sel) > 0) {
+      showNotification("⚠️ No Critical Habitats occur in the selected combination of Habitat Areas and Basins/Oceans.", type = "warning", duration = 6)
     }
     
     updateCheckboxGroupInput(
